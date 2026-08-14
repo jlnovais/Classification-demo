@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm audit *)",
+      "Bash(npm view *)",
+      "Bash(npx nest *)",
+      "Bash(npx eslint *)",
+      "Bash(npx jest *)",
+      "Bash(npx tsc *)"
+    ]
+  }
+}
