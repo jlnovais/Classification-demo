@@ -6,7 +6,7 @@ Turns free-text receipts, invoices, or expense notes into structured JSON, using
 
 - Node.js 20 + TypeScript + NestJS
 - PostgreSQL (accessed via `pg`, no ORM — plain SQL, with tables created automatically on startup)
-- Claude API (`claude-opus-5` by default) via structured output (`output_config.format`)
+- Claude API (`claude-opus-4-8`, set via `ANTHROPIC_MODEL`) via structured output (`output_config.format`)
 
 ## Setup
 

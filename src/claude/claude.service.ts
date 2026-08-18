@@ -1,6 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Anthropic from '@anthropic-ai/sdk';
+import {
+  describeClaudeError,
+  formatClaudeError,
+  toHttpException,
+} from './claude-error';
 
 export interface ExtractedReceipt {
   merchant: string | null;
@@ -73,6 +78,7 @@ const RECEIPT_JSON_SCHEMA = {
 
 @Injectable()
 export class ClaudeService {
+  private readonly logger = new Logger(ClaudeService.name);
   private readonly client: Anthropic;
   private readonly model: string;
 
@@ -88,16 +94,29 @@ export class ClaudeService {
   }
 
   async extractReceipt(rawText: string): Promise<ExtractedReceipt> {
-    const response = await this.client.messages.create({
-      model: this.model,
-      max_tokens: 1024,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: rawText }],
-      output_config: {
-        effort: 'low',
-        format: { type: 'json_schema', schema: RECEIPT_JSON_SCHEMA },
-      },
-    });
+    let response: Anthropic.Message;
+    try {
+      response = await this.client.messages.create({
+        model: this.model,
+        max_tokens: 1024,
+        system: SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: rawText }],
+        output_config: {
+          effort: 'low',
+          format: { type: 'json_schema', schema: RECEIPT_JSON_SCHEMA },
+        },
+      });
+    } catch (error) {
+      const details = describeClaudeError(error);
+      if (!details) {
+        throw error;
+      }
+      this.logger.error(formatClaudeError(details));
+      this.logger.error(
+        `Claude API response body: ${JSON.stringify(details.anthropic_response)}`,
+      );
+      throw toHttpException(details);
+    }
 
     const textBlock = response.content.find((block) => block.type === 'text');
     if (!textBlock || textBlock.type !== 'text') {

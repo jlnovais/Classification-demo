@@ -23,6 +23,16 @@ export class ReceiptsController {
     status: 400,
     description: 'Validation error (e.g. missing or empty raw_text).',
   })
+  @ApiResponse({
+    status: 429,
+    description:
+      'The Claude API rate limit was reached. The response body carries the upstream details.',
+  })
+  @ApiResponse({
+    status: 503,
+    description:
+      'The Claude API is overloaded or unavailable. Safe to retry; the response body carries the upstream details.',
+  })
   async parseReceipt(
     @Body() dto: ParseReceiptDto,
   ): Promise<ParsedReceiptResponseDto> {
