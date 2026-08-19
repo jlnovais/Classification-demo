@@ -1,0 +1,214 @@
+{
+  "description": "Hand-labelled receipts for measuring category classification. expected_categories is compared as a set; order does not matter. Replace and extend these with real receipts from your own data as you collect them.",
+  "cases": [
+    {
+      "id": "tasco-spoons",
+      "raw_text": "Tasco coiso, Guimarães, Portugal - 13/08/2026. Colheres 3. Total: 3.0 EUR. Visa.",
+      "expected_categories": ["Home & Kitchen"],
+      "note": "Merchant says tavern, item says spoons. Items win."
+    },
+    {
+      "id": "tasco-meal",
+      "raw_text": "Tasco do Zé, Guimarães - 13/08/2026. Francesinha 2, Cerveja 2. Total: 24.50 EUR. Multibanco.",
+      "expected_categories": ["Food"]
+    },
+    {
+      "id": "tasco-no-items",
+      "raw_text": "Tasco coiso, Guimarães - 13/08/2026. Total: 18.40 EUR. Visa.",
+      "expected_categories": ["Food"],
+      "note": "No items listed, so the merchant type is the only evidence available."
+    },
+    {
+      "id": "bakery-bread-knife",
+      "raw_text": "Padaria Central, Braga - 02/07/2026. Faca de pão 1. Total: 12.90 EUR. Dinheiro.",
+      "expected_categories": ["Home & Kitchen"]
+    },
+    {
+      "id": "bakery-bread",
+      "raw_text": "Padaria Central, Braga - 02/07/2026. Pão de forma 2, Croissants 4. Total: 6.35 EUR. Dinheiro.",
+      "expected_categories": ["Food"]
+    },
+    {
+      "id": "pharmacy-toiletries",
+      "raw_text": "Farmácia Sá, Porto - 11/08/2026. Champô anticaspa 1, Escova de dentes 2. Total: 14.20 EUR. Visa.",
+      "expected_categories": ["Personal Care"],
+      "note": "Bought at a pharmacy, but they are toiletries and not medication."
+    },
+    {
+      "id": "pharmacy-medication",
+      "raw_text": "Farmácia Sá, Porto - 11/08/2026. Paracetamol 1000mg 1, Xarope para a tosse 1. Total: 9.80 EUR. Visa.",
+      "expected_categories": ["Health"]
+    },
+    {
+      "id": "supermarket-three-way",
+      "raw_text": "Continente, Guimarães - 14/08/2026. Leite 6, Arroz 1, Detergente da louça 1, Frigideira 24cm 1. Total: 41.15 EUR. Visa.",
+      "expected_categories": ["Food", "Household Supplies", "Home & Kitchen"]
+    },
+    {
+      "id": "supermarket-groceries",
+      "raw_text": "Pingo Doce, Braga - 05/08/2026. Frango 1, Batatas 2kg, Tomate 1kg, Iogurtes 4. Total: 18.72 EUR. MBWay.",
+      "expected_categories": ["Food"]
+    },
+    {
+      "id": "fuel",
+      "raw_text": "Galp, A3 Área de Serviço - 09/08/2026. Gasóleo 42.10 L. Total: 68.90 EUR. Visa.",
+      "expected_categories": ["Transportation"]
+    },
+    {
+      "id": "fuel-and-snack",
+      "raw_text": "BP Guimarães - 09/08/2026. Gasolina 95 30 L, Sandes de queijo 1, Água 0.5L 1. Total: 55.40 EUR. Visa.",
+      "expected_categories": ["Transportation", "Food"]
+    },
+    {
+      "id": "tolls",
+      "raw_text": "Via Verde - Portagens Julho 2026. Total: 34.80 EUR. Débito direto.",
+      "expected_categories": ["Transportation"]
+    },
+    {
+      "id": "parking",
+      "raw_text": "Saba Parque, Porto - 12/08/2026. Estacionamento 3h. Total: 4.50 EUR. Multibanco.",
+      "expected_categories": ["Transportation"]
+    },
+    {
+      "id": "car-service",
+      "raw_text": "Auto Reparações Silva, Famalicão - 21/07/2026. Mudança de óleo, Filtro de ar 1. Total: 96.00 EUR. Transferência bancária.",
+      "expected_categories": ["Transportation"]
+    },
+    {
+      "id": "hairdresser",
+      "raw_text": "Cabeleireiro Estilo, Guimarães - 08/08/2026. Corte de cabelo 1. Total: 15.00 EUR. Dinheiro.",
+      "expected_categories": ["Personal Care"]
+    },
+    {
+      "id": "clothing",
+      "raw_text": "Zara, Braga Parque - 03/08/2026. T-shirt 2, Calças de ganga 1. Total: 59.95 EUR. Visa.",
+      "expected_categories": ["Clothing"]
+    },
+    {
+      "id": "shoes",
+      "raw_text": "Sapataria Nova, Guimarães - 19/07/2026. Sapatilhas 1. Total: 74.90 EUR. MBWay.",
+      "expected_categories": ["Clothing"]
+    },
+    {
+      "id": "hotel",
+      "raw_text": "Hotel da Oliveira, Guimarães - 01/08/2026 a 03/08/2026. 2 noites, quarto duplo. Total: 180.00 EUR. Visa.",
+      "expected_categories": ["Travel & Accommodation"]
+    },
+    {
+      "id": "flight",
+      "raw_text": "TAP Air Portugal - Reserva ABC123. Lisboa-Porto, 22/08/2026. Total: 89.00 EUR. Visa.",
+      "expected_categories": ["Travel & Accommodation"]
+    },
+    {
+      "id": "cinema",
+      "raw_text": "NOS Cinemas, Braga - 10/08/2026. 2 bilhetes. Total: 15.00 EUR. Multibanco.",
+      "expected_categories": ["Leisure"]
+    },
+    {
+      "id": "gym",
+      "raw_text": "Ginásio Fitness Hub - Mensalidade Agosto 2026. Total: 39.90 EUR. Débito direto.",
+      "expected_categories": ["Leisure"]
+    },
+    {
+      "id": "electricity",
+      "raw_text": "EDP Comercial - Fatura de eletricidade, Julho 2026. Total: 61.23 EUR. Débito direto.",
+      "expected_categories": ["Housing"]
+    },
+    {
+      "id": "internet-phone",
+      "raw_text": "MEO - Fatura mensal internet e telefone, Agosto 2026. Total: 44.99 EUR. Débito direto.",
+      "expected_categories": ["Housing"]
+    },
+    {
+      "id": "rent",
+      "raw_text": "Recibo de renda - Apartamento Rua da Liberdade 12, Guimarães. Agosto 2026. Total: 550.00 EUR. Transferência bancária.",
+      "expected_categories": ["Housing"]
+    },
+    {
+      "id": "computer-accessories",
+      "raw_text": "Worten, Braga Parque - 07/08/2026. Rato sem fios 1, Cabo HDMI 2m 1. Total: 32.98 EUR. Visa.",
+      "expected_categories": ["Electronics"]
+    },
+    {
+      "id": "kettle-at-electronics-store",
+      "raw_text": "Worten, Braga Parque - 07/08/2026. Chaleira elétrica 1. Total: 24.99 EUR. Visa.",
+      "expected_categories": ["Home & Kitchen"],
+      "note": "Small kitchen appliance bought from an electronics retailer."
+    },
+    {
+      "id": "textbook",
+      "raw_text": "Livraria Bertrand, Porto - 15/07/2026. Manual de Álgebra Linear 1. Total: 38.50 EUR. Visa.",
+      "expected_categories": ["Education"]
+    },
+    {
+      "id": "novel",
+      "raw_text": "Livraria Bertrand, Porto - 15/07/2026. Romance policial 1. Total: 17.90 EUR. Visa.",
+      "expected_categories": ["Leisure"],
+      "note": "Same shop as the textbook, but recreational reading rather than study."
+    },
+    {
+      "id": "training-course",
+      "raw_text": "Formação Profissional XPTO - Curso de Excel avançado. Total: 250.00 EUR. Transferência bancária.",
+      "expected_categories": ["Education"]
+    },
+    {
+      "id": "bank-fee",
+      "raw_text": "Banco Millennium - Comissão de manutenção de conta, Agosto 2026. Total: 5.20 EUR. Débito em conta.",
+      "expected_categories": ["Services & Fees"]
+    },
+    {
+      "id": "car-insurance",
+      "raw_text": "Fidelidade Seguros - Prémio seguro automóvel, 2 semestre 2026. Total: 142.60 EUR. Débito direto.",
+      "expected_categories": ["Services & Fees"],
+      "note": "Insurance premiums are fees, not Transportation."
+    },
+    {
+      "id": "dentist",
+      "raw_text": "Clínica Dentária Sorriso, Guimarães - 06/08/2026. Consulta + limpeza. Total: 55.00 EUR. Multibanco.",
+      "expected_categories": ["Health"]
+    },
+    {
+      "id": "optician",
+      "raw_text": "Óptica Central, Braga - 28/07/2026. Óculos graduados 1. Total: 165.00 EUR. Visa.",
+      "expected_categories": ["Health"]
+    },
+    {
+      "id": "vet",
+      "raw_text": "Clínica Veterinária Amigo Fiel, Guimarães - 04/08/2026. Consulta + vacina gato. Total: 42.00 EUR. Multibanco.",
+      "expected_categories": ["Other"],
+      "note": "There is no Pets bucket in the taxonomy, so this must land in Other."
+    },
+    {
+      "id": "cleaning-supplies",
+      "raw_text": "Mercadona, Guimarães - 16/08/2026. Lixívia 1, Rolos de cozinha 2, Sacos do lixo 1. Total: 8.45 EUR. MBWay.",
+      "expected_categories": ["Household Supplies"],
+      "note": "Consumables rather than durable kitchen goods."
+    },
+    {
+      "id": "cafe-mug",
+      "raw_text": "Café Central, Guimarães - 17/08/2026. Caneca de porcelana 1. Total: 7.50 EUR. Dinheiro.",
+      "expected_categories": ["Home & Kitchen"]
+    },
+    {
+      "id": "english-restaurant",
+      "raw_text": "The Corner Bistro, Dublin - 2026-07-30. 2x Burger, 1x Cider. Total: EUR 38.20. Card.",
+      "expected_categories": ["Food"],
+      "note": "Not Portuguese; the prompt must stay language-agnostic."
+    },
+    {
+      "id": "cutlery-set",
+      "raw_text": "El Corte Inglés, Lisboa - 25/07/2026. Conjunto de talheres 24 peças 1, Toalha de mesa 1. Total: 89.00 EUR. Visa.",
+      "expected_categories": ["Home & Kitchen"]
+    },
+    {
+      "id": "furniture",
+      "raw_text": "IKEA Matosinhos - 12/07/2026. Estante BILLY 1, Almofadas 2. Total: 78.00 EUR. Visa.",
+      "expected_categories": ["Home & Kitchen"]
+    },
+    {
+      "id": "socks-and-towels",
+      "raw_text": "Primark, Braga - 20/07/2026. Meias 5 pares, Toalhas de banho 2. Total: 24.30 EUR. Multibanco.",
+      "expected_categories": ["Clothing", "Home & Kitchen"]
+    }
+  ]
+}

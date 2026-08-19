@@ -64,6 +64,24 @@ Response:
 
 Each receipt can be associated with more than one category — the relationship is many-to-many (`receipts` ↔ `categories` via `receipt_categories`).
 
+## Categories
+
+The taxonomy is a closed list defined by `CATEGORIES` in `src/claude/claude.service.ts`. It is used twice: as the `enum` in the JSON schema, so Claude cannot invent or misspell a label, and as the list of categories with their definitions rendered into the system prompt. Add a bucket there and both follow — the `categories` table stores whatever comes back, so it needs no migration.
+
+Claude extracts `line_items` with a category per item before it fills in the receipt-level `categories`, and the two are merged. Items outrank the merchant name when they disagree: spoons bought at a tavern are `Home & Kitchen`, not `Food`.
+
+## Evaluating classification
+
+`eval/receipts.eval.json` holds labelled receipts; `npm run eval` runs each one through the real Claude API and reports per-category precision, recall and F1 plus an exact-set-match rate, so a prompt or taxonomy change can be measured rather than guessed at.
+
+```
+npm run eval
+npm run eval -- --label before --out reports/before.json   # keep a report to diff against
+npm run eval -- --limit 5                                  # quick smoke run
+```
+
+It needs `ANTHROPIC_API_KEY` but no database, and it spends real tokens — one request per case. The bundled cases are synthetic; replace and extend them with real receipts as you collect them, especially any that get miscategorized in production.
+
 ## Tests
 
 Tests live under `test/`, mirroring the `src/` structure.
