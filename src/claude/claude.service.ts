@@ -30,6 +30,7 @@ const CATEGORIES = [
   'Leisure',
   'Education',
   'Services & Fees',
+  'Prepared food or drinks',
   'Other',
 ] as const;
 
@@ -63,6 +64,8 @@ const CATEGORY_DEFINITIONS: Record<(typeof CATEGORIES)[number], string> = {
     'tuition, courses, exam fees, textbooks, and school or study supplies.',
   'Services & Fees':
     'bank charges, insurance premiums of any kind including vehicle and home insurance, postage, legal, accounting and other professional services.',
+  'Prepared food or drinks':
+    'Prepared food or drinks for immediate consumption, including restaurant, cafe and bar bills, takeaway and drinks.',
   Other:
     'only when nothing above applies, for example veterinary care, pet supplies, gifts and donations.',
 };
@@ -198,18 +201,32 @@ export type ExtractedReceipt = ReturnType<typeof RECEIPT_OUTPUT_FORMAT.parse>;
  */
 const MAX_TOKENS = 4096;
 
+/**
+ * `output_config.effort` is rejected with a 400 on the Haiku tier and on
+ * Sonnet 4.5, so it can only be sent for models that accept it — Opus 4.5,
+ * Sonnet 5 and everything above them. Matched by prefix rather than by an
+ * exhaustive list so a newly released model is assumed to support it.
+ */
+const MODELS_WITHOUT_EFFORT = [/^claude-haiku-/, /^claude-sonnet-4-5/];
+
 @Injectable()
 export class ClaudeService {
   private readonly logger = new Logger(ClaudeService.name);
   private readonly client: Anthropic;
   /** Public so tooling such as the eval runner can report which model ran. */
   readonly model: string;
+  private readonly supportsEffort: boolean;
 
   constructor(private readonly config: ConfigService) {
     this.client = new Anthropic({
       apiKey: this.config.get<string>('ANTHROPIC_API_KEY'),
     });
-    this.model = this.config.get<string>('ANTHROPIC_MODEL') ?? 'claude-opus-5';
+    this.model =
+      this.config.get<string>('ANTHROPIC_MODEL') ?? 'claude-haiku-4-5';
+
+    this.supportsEffort = !MODELS_WITHOUT_EFFORT.some((pattern) =>
+      pattern.test(this.model),
+    );
   }
 
   get systemPrompt(): string {
@@ -269,7 +286,7 @@ export class ClaudeService {
         system: SYSTEM_PROMPT,
         messages: [{ role: 'user', content: rawText }],
         output_config: {
-          effort: 'low',
+          ...(this.supportsEffort ? { effort: 'low' as const } : {}),
           format: RECEIPT_OUTPUT_FORMAT,
         },
       });
