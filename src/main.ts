@@ -25,6 +25,7 @@ async function bootstrap() {
   await app.listen(port);
   console.log(`Receipt extractor API listening on port ${port}`);
   console.log(`Swagger docs available at http://localhost:${port}/docs`);
+  console.log(`Claude API model: ${config.get<string>('ANTHROPIC_MODEL')}`);
 }
 
 void bootstrap();

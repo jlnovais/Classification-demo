@@ -45,6 +45,10 @@ describe('ReceiptsService', () => {
       total_amount: 4.5,
       currency: 'EUR',
       payment_method: 'Card',
+      line_items: [
+        { description: 'Bananas', quantity: 1, category: 'Food' as const },
+      ],
+      category_evidence: 'The receipt lists groceries.',
       categories: ['Food'],
       confidence_score: 0.95,
     });
