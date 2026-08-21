@@ -55,5 +55,23 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         PRIMARY KEY (receipt_id, category_id)
       );
     `);
+
+    // `CREATE TABLE IF NOT EXISTS` above is a no-op on a database that already
+    // has these tables, so anything added after the first release has to be an
+    // explicit, idempotent ALTER. All three statements below are safe to re-run.
+    await this.pool.query(`
+      -- A PDF upload has no raw text at ingest time; Claude reads the document
+      -- itself, so there is nothing to store in this column for those receipts.
+      ALTER TABLE receipts ALTER COLUMN raw_text DROP NOT NULL;
+
+      -- The DEFAULT backfills every pre-existing row as 'text', which is what
+      -- they all are: the PDF endpoint is the only writer of 'pdf'.
+      ALTER TABLE receipts
+        ADD COLUMN IF NOT EXISTS source_type VARCHAR(10) NOT NULL DEFAULT 'text';
+
+      -- Kept so a failed PDF extraction can be traced back to an actual file.
+      ALTER TABLE receipts ADD COLUMN IF NOT EXISTS source_filename TEXT;
+      ALTER TABLE receipts ADD COLUMN IF NOT EXISTS source_bytes INTEGER;
+    `);
   }
 }

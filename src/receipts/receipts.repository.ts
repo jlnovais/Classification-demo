@@ -22,8 +22,28 @@ export class ReceiptsRepository {
 
   async createPending(rawText: string, promptUsed: string): Promise<string> {
     const result = await this.db.pool.query<{ id: string }>(
-      `INSERT INTO receipts (raw_text, prompt_used, status) VALUES ($1, $2, 'pending') RETURNING id`,
+      `INSERT INTO receipts (raw_text, prompt_used, status, source_type)
+       VALUES ($1, $2, 'pending', 'text') RETURNING id`,
       [rawText, promptUsed],
+    );
+    return result.rows[0].id;
+  }
+
+  /**
+   * The PDF counterpart of `createPending`. `raw_text` stays null - the file is
+   * sent straight to Claude rather than converted to text here - so the file
+   * name and size are recorded instead, which is what makes a failed row
+   * traceable back to an upload.
+   */
+  async createPendingPdf(
+    filename: string,
+    sizeBytes: number,
+    promptUsed: string,
+  ): Promise<string> {
+    const result = await this.db.pool.query<{ id: string }>(
+      `INSERT INTO receipts (prompt_used, status, source_type, source_filename, source_bytes)
+       VALUES ($1, 'pending', 'pdf', $2, $3) RETURNING id`,
+      [promptUsed, filename, sizeBytes],
     );
     return result.rows[0].id;
   }

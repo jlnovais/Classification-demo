@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import Anthropic from '@anthropic-ai/sdk';
+import Anthropic, { type ParsedMessage } from '@anthropic-ai/sdk';
 import { jsonSchemaOutputFormat } from '@anthropic-ai/sdk/helpers/json-schema';
 import {
   describeClaudeError,
@@ -74,9 +74,20 @@ const CATEGORY_BLOCK = CATEGORIES.map(
   (category) => `- ${category} - ${CATEGORY_DEFINITIONS[category]}`,
 ).join('\n');
 
-const SYSTEM_PROMPT = `You are an expert financial data extraction assistant. Given the raw text of a receipt, invoice, or expense note, extract structured information from it.
+/**
+ * The one sentence that differs between the two endpoints: what the model is
+ * being handed. Everything after it - field rules, taxonomy, categorization
+ * order, language notes - is shared, so the two prompts cannot drift apart as
+ * the taxonomy grows.
+ */
+const PROMPT_INTRO = {
+  text: 'Given the raw text of a receipt, invoice, or expense note, extract structured information from it.',
+  pdf: 'Given a receipt, invoice, or expense note as a PDF document, read the document and extract structured information from it. The pages may be scanned or photographed rather than digitally generated; read what is legible and leave a field null rather than guessing at it.',
+} as const;
 
-Field rules:
+export type ReceiptSource = keyof typeof PROMPT_INTRO;
+
+const PROMPT_BODY = `Field rules:
 - "merchant" is the name of the store or business only, without the location (e.g. "Fresh Grocer Downtown" -> merchant "Fresh Grocer", location "Downtown").
 - "location" is the city or place mentioned, if any. Use null if none is present.
 - "date" must be normalized to ISO 8601 (YYYY-MM-DD). Use null if no date is present.
@@ -100,7 +111,32 @@ How to categorize:
 Language:
 Receipts may be written in Portuguese, English, or a mix of both. Work out what each item actually is before categorizing it. Portuguese terms that are easy to misread: "colheres" = spoons, "garfos" = forks, "facas" = knives, "talheres" = cutlery, "tachos" and "panelas" = pots and pans, "frigideira" = frying pan, "caneca" = mug, "louca" = crockery (so "detergente da louca" is dishwashing detergent, a supply), "toalhas" = towels, "lixivia" = bleach, "tasco" = a small tavern, "padaria" = bakery, "farmacia" = pharmacy, "papelaria" = stationery shop, "coiso" = a slang filler word carrying no meaning.
 
-Only use information present in the text or safely inferable from it. Do not fabricate data.`;
+Only use information present in the {SOURCE} or safely inferable from it. Do not fabricate data.`;
+
+/** What to call the input in the closing sentence of `PROMPT_BODY`. */
+const SOURCE_NOUN = { text: 'text', pdf: 'document' } as const;
+
+function buildSystemPrompt(source: ReceiptSource): string {
+  return `You are an expert financial data extraction assistant. ${PROMPT_INTRO[source]}
+
+${PROMPT_BODY.replace('{SOURCE}', SOURCE_NOUN[source])}`;
+}
+
+/**
+ * The text-endpoint prompt. Composed rather than written out, but byte-identical
+ * to the prompt shipped before the PDF endpoint existed - the eval baselines and
+ * the `prompt_used` column of existing rows stay comparable.
+ */
+const SYSTEM_PROMPT = buildSystemPrompt('text');
+const PDF_SYSTEM_PROMPT = buildSystemPrompt('pdf');
+
+/**
+ * The text block that accompanies the document block. The PDF is the actual
+ * input, so this only has to point at it - the rules all live in the system
+ * prompt.
+ */
+const PDF_USER_INSTRUCTION =
+  'Extract the structured receipt data from the attached PDF document.';
 
 // `as const` throughout: the schema is the single source of truth for
 // `ExtractedReceipt`, and deriving a type from it needs the literal types
@@ -233,9 +269,49 @@ export class ClaudeService {
     return SYSTEM_PROMPT;
   }
 
-  async extractReceipt(rawText: string): Promise<ExtractedReceipt> {
-    const response = await this.requestExtraction(rawText);
+  get pdfSystemPrompt(): string {
+    return PDF_SYSTEM_PROMPT;
+  }
 
+  async extractReceipt(rawText: string): Promise<ExtractedReceipt> {
+    return this.toExtraction(
+      await this.requestExtraction(SYSTEM_PROMPT, rawText),
+    );
+  }
+
+  /**
+   * Sends the PDF itself rather than text pulled out of it: Claude reads the
+   * document natively, which keeps layout and any scanned or photographed pages
+   * in play instead of discarding them at a text-extraction step. The document
+   * block goes before the text block, which is the order the API expects.
+   */
+  async extractReceiptFromPdf(pdfBase64: string): Promise<ExtractedReceipt> {
+    return this.toExtraction(
+      await this.requestExtraction(PDF_SYSTEM_PROMPT, [
+        {
+          type: 'document',
+          source: {
+            type: 'base64',
+            media_type: 'application/pdf',
+            data: pdfBase64,
+          },
+        },
+        { type: 'text', text: PDF_USER_INSTRUCTION },
+      ]),
+    );
+  }
+
+  /**
+   * The checks that apply to any extraction response, whatever the input was.
+   */
+  private toExtraction(
+    // `_request_id` is attached by the SDK's request wrapper rather than by
+    // `ParsedMessage`, and its type lives under the SDK's `internal/` path, so
+    // it is spelled out here instead of imported from there.
+    response: ParsedMessage<ExtractedReceipt> & {
+      _request_id?: string | null;
+    },
+  ): ExtractedReceipt {
     // A refusal and a truncation both arrive as HTTP 200, so neither reaches
     // the error mapping in `requestExtraction`. Truncation matters particularly:
     // the output stops mid-JSON and would otherwise surface as an unmapped
@@ -275,16 +351,20 @@ export class ClaudeService {
   }
 
   /**
-   * Kept separate so the parsed response type is inferred from the request
-   * rather than restated as an annotation on a pre-declared variable.
+   * The single place a request is built and Claude API failures are mapped, so
+   * the text and PDF paths cannot diverge on error handling. Only the system
+   * prompt and the user content differ between them.
    */
-  private async requestExtraction(rawText: string) {
+  private async requestExtraction(
+    systemPrompt: string,
+    content: Anthropic.MessageParam['content'],
+  ) {
     try {
       return await this.client.messages.parse({
         model: this.model,
         max_tokens: MAX_TOKENS,
-        system: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: rawText }],
+        system: systemPrompt,
+        messages: [{ role: 'user', content }],
         output_config: {
           ...(this.supportsEffort ? { effort: 'low' as const } : {}),
           format: RECEIPT_OUTPUT_FORMAT,
