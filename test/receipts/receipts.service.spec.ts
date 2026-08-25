@@ -16,13 +16,16 @@ describe('ReceiptsService', () => {
           provide: ClaudeService,
           useValue: {
             systemPrompt: 'system-prompt',
+            pdfSystemPrompt: 'pdf-system-prompt',
             extractReceipt: jest.fn(),
+            extractReceiptFromPdf: jest.fn(),
           },
         },
         {
           provide: ReceiptsRepository,
           useValue: {
             createPending: jest.fn(),
+            createPendingPdf: jest.fn(),
             completeWithExtraction: jest.fn(),
             markFailed: jest.fn(),
             findById: jest.fn(),
@@ -38,33 +41,8 @@ describe('ReceiptsService', () => {
 
   it('saves the extraction and returns the formatted receipt', async () => {
     repository.createPending.mockResolvedValue('receipt-1');
-    claude.extractReceipt.mockResolvedValue({
-      merchant: 'Fresh Grocer',
-      location: 'Downtown',
-      date: '2026-08-12',
-      total_amount: 4.5,
-      currency: 'EUR',
-      payment_method: 'Card',
-      line_items: [
-        { description: 'Bananas', quantity: 1, category: 'Food' as const },
-      ],
-      category_evidence: 'The receipt lists groceries.',
-      categories: ['Food'],
-      confidence_score: 0.95,
-    });
-    repository.findById.mockResolvedValue({
-      id: 'receipt-1',
-      merchant: 'Fresh Grocer',
-      location: 'Downtown',
-      receipt_date: '2026-08-12',
-      total_amount: '4.50',
-      currency: 'EUR',
-      payment_method: 'Card',
-      confidence_score: '0.95',
-      status: 'completed',
-      created_at: new Date('2026-08-12T10:00:00Z'),
-      categories: ['Food'],
-    });
+    claude.extractReceipt.mockResolvedValue(extraction());
+    repository.findById.mockResolvedValue(record('receipt-1'));
 
     const result = await service.parseReceipt({
       raw_text:
@@ -92,4 +70,93 @@ describe('ReceiptsService', () => {
     // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
     expect(repository.markFailed).toHaveBeenCalledWith('receipt-2');
   });
+
+  it('sends an uploaded PDF to Claude and returns the same response shape', async () => {
+    repository.createPendingPdf.mockResolvedValue('receipt-3');
+    claude.extractReceiptFromPdf.mockResolvedValue(extraction());
+    repository.findById.mockResolvedValue(record('receipt-3'));
+
+    const result = await service.parseReceiptPdf(
+      upload('grocer.pdf', '%PDF-1.7 fake receipt'),
+    );
+
+    // The file name and size are recorded so a failed row stays traceable, and
+    // the PDF prompt is the one stored against it.
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
+    expect(repository.createPendingPdf).toHaveBeenCalledWith(
+      'grocer.pdf',
+      Buffer.byteLength('%PDF-1.7 fake receipt'),
+      'pdf-system-prompt',
+    );
+    // The buffer must reach Claude base64-encoded, not as raw bytes or a path.
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
+    expect(claude.extractReceiptFromPdf).toHaveBeenCalledWith(
+      Buffer.from('%PDF-1.7 fake receipt').toString('base64'),
+    );
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
+    expect(claude.extractReceipt).not.toHaveBeenCalled();
+    expect(result.total_amount).toBe(4.5);
+    expect(result.confidence_score).toBe(0.95);
+    expect(result.categories).toEqual(['Food']);
+  });
+
+  it('marks the receipt as failed when PDF extraction throws', async () => {
+    repository.createPendingPdf.mockResolvedValue('receipt-4');
+    claude.extractReceiptFromPdf.mockRejectedValue(new Error('pdf boom'));
+
+    await expect(
+      service.parseReceiptPdf(upload('broken.pdf', '%PDF-1.7 truncated')),
+    ).rejects.toThrow('pdf boom');
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
+    expect(repository.markFailed).toHaveBeenCalledWith('receipt-4');
+  });
 });
+
+/** A successful extraction, shared by the text and PDF cases. */
+function extraction() {
+  return {
+    merchant: 'Fresh Grocer',
+    location: 'Downtown',
+    date: '2026-08-12',
+    total_amount: 4.5,
+    currency: 'EUR',
+    payment_method: 'Card',
+    line_items: [
+      { description: 'Bananas', quantity: 1, category: 'Food' as const },
+    ],
+    category_evidence: 'The receipt lists groceries.',
+    categories: ['Food' as const],
+    confidence_score: 0.95,
+  };
+}
+
+/** The row `findById` returns once that extraction has been saved. */
+function record(id: string) {
+  return {
+    id,
+    merchant: 'Fresh Grocer',
+    location: 'Downtown',
+    receipt_date: '2026-08-12',
+    total_amount: '4.50',
+    currency: 'EUR',
+    payment_method: 'Card',
+    confidence_score: '0.95',
+    status: 'completed',
+    created_at: new Date('2026-08-12T10:00:00Z'),
+    categories: ['Food'],
+  };
+}
+
+/**
+ * A multer upload carrying only the fields the service reads. Validation of the
+ * upload itself happens in the controller, so it is covered separately.
+ */
+function upload(originalname: string, contents: string): Express.Multer.File {
+  const buffer = Buffer.from(contents);
+  return {
+    originalname,
+    buffer,
+    size: buffer.byteLength,
+    mimetype: 'application/pdf',
+  } as Express.Multer.File;
+}

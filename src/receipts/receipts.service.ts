@@ -1,5 +1,5 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
-import { ClaudeService } from '../claude/claude.service';
+import { ClaudeService, ExtractedReceipt } from '../claude/claude.service';
 import { ParsedReceiptResponseDto } from './dto/parsed-receipt-response.dto';
 import { ParseReceiptDto } from './dto/parse-receipt.dto';
 import { ReceiptRecord, ReceiptsRepository } from './receipts.repository';
@@ -17,8 +17,43 @@ export class ReceiptsService {
       this.claude.systemPrompt,
     );
 
+    return this.extractInto(receiptId, () =>
+      this.claude.extractReceipt(dto.raw_text),
+    );
+  }
+
+  /**
+   * The PDF counterpart of `parseReceipt`. The file is handed to Claude as-is,
+   * so there is no text-extraction step here; everything after the extraction
+   * call - persistence, category linking, failure bookkeeping, the response
+   * shape - is the same code path as the text endpoint.
+   */
+  async parseReceiptPdf(
+    file: Express.Multer.File,
+  ): Promise<ParsedReceiptResponseDto> {
+    const receiptId = await this.repository.createPendingPdf(
+      file.originalname,
+      file.size,
+      this.claude.pdfSystemPrompt,
+    );
+
+    const pdfBase64 = file.buffer.toString('base64');
+    return this.extractInto(receiptId, () =>
+      this.claude.extractReceiptFromPdf(pdfBase64),
+    );
+  }
+
+  /**
+   * Runs an extraction against an already-pending receipt row and saves the
+   * result. Shared by both endpoints so a failure is recorded the same way
+   * whatever the input was.
+   */
+  private async extractInto(
+    receiptId: string,
+    extract: () => Promise<ExtractedReceipt>,
+  ): Promise<ParsedReceiptResponseDto> {
     try {
-      const extracted = await this.claude.extractReceipt(dto.raw_text);
+      const extracted = await extract();
       await this.repository.completeWithExtraction(
         receiptId,
         extracted,

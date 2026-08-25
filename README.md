@@ -34,9 +34,9 @@ Client --POST /api/parse-receipt--> API (Nest)
                                         └─ returns the formatted JSON
 ```
 
-## Endpoint
+## Endpoints
 
-`POST /api/parse-receipt`
+### `POST /api/parse-receipt` — free text
 
 ```json
 {
@@ -44,7 +44,22 @@ Client --POST /api/parse-receipt--> API (Nest)
 }
 ```
 
-Response:
+### `POST /api/parse-receipt-pdf` — PDF file
+
+Same extraction, categorization, storage and response as the text endpoint; the input is a PDF instead. The body is `multipart/form-data` with the file under the field name **`file`**:
+
+```bash
+curl -X POST http://localhost:3000/api/parse-receipt-pdf \
+  -F "file=@receipt.pdf;type=application/pdf"
+```
+
+The PDF is handed to the Claude API as a `document` content block, so Claude reads the file itself — there is no text-extraction or OCR step in this service, and no PDF library among the dependencies. Scanned and photographed pages work for the same reason.
+
+Limits and validation: 10 MB per file (the API caps a request at 32 MB and base64 adds about a third), `application/pdf` only, and the upload must begin with the `%PDF-` signature — `mimetype` comes from the client, so the signature check is what stops a renamed JPEG from reaching the API. Over-limit uploads get a 413, the rest a 400.
+
+Two notes on the model side: Claude caps PDFs at 100 pages on 200K-context models such as the default `claude-haiku-4-5`, and a PDF page costs more than the equivalent text because the pages are billed as images as well as text. In Postgres these rows carry `source_type = 'pdf'` with `source_filename` and `source_bytes` set and `raw_text` null, so text and PDF receipts stay distinguishable.
+
+Both endpoints return the same body:
 
 ```json
 {
