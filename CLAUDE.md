@@ -37,7 +37,8 @@ The interesting file. Things to preserve when editing:
 - `CATEGORIES` is the single source of truth for the taxonomy, used twice: as the schema `enum` (so the model cannot invent a label) and rendered into the system prompt via `CATEGORY_DEFINITIONS`. The `Record<(typeof CATEGORIES)[number], string>` type makes a missing definition a compile error. Adding a category needs no DB change — `categories` rows are created on demand.
 - `RECEIPT_JSON_SCHEMA` is `as const` on purpose: `ExtractedReceipt` is *derived* from it via `jsonSchemaOutputFormat(...).parse`. Never declare that type by hand.
 - Schema property order is generation order. `line_items` and `category_evidence` sit before `categories` so the model reasons over items first; `mergeCategories` then unions item categories into the receipt categories, ordered by the taxonomy for stable output.
-- The two prompts are composed from a shared `PROMPT_BODY` plus a per-source `PROMPT_INTRO`, and the text prompt is byte-identical to the pre-PDF version so eval baselines and stored `prompt_used` values stay comparable. Keep it that way when editing shared prompt text.
+- The anomaly trio (`anomaly_evidence`, `is_suspicious`, `flag_reason`) sits **last** in the schema for the same reason: the model judges an extraction it can already see, with the evidence sentence generated before the boolean. Only semantic checks live in the prompt — the day-of-week check is computed from the extracted date in `src/claude/anomaly.ts` and unioned into the verdict in `toExtraction`, because models get calendar arithmetic wrong. The prompt therefore tells the model explicitly *not* to consider the day of the week; drop that line and weekends get flagged twice.
+- The two prompts are composed from a shared `PROMPT_BODY` plus a per-source `PROMPT_INTRO`. Keep them composed that way when editing shared prompt text. The text prompt was byte-identical to the pre-PDF version until the anomaly checks were added, so eval reports and stored `prompt_used` values from before that change are not comparable with later ones.
 - `output_config.effort` is only sent for models that accept it — see `MODELS_WITHOUT_EFFORT`; Haiku and Sonnet 4.5 reject it with a 400.
 - Refusals and `max_tokens` truncation arrive as HTTP 200, so they are checked explicitly in `toExtraction` rather than caught as errors.
 
@@ -48,6 +49,8 @@ PDF uploads are validated twice by design (`receipts.controller.ts` + `pdf-file.
 ## Eval harness
 
 `eval/run-eval.ts` builds a Nest context with `ClaudeModule` only (no `DatabaseModule`, so no PostgreSQL needed) and scores `eval/receipts.eval.json` cases for per-category precision/recall/F1 and exact-set match. Any prompt or taxonomy change should be measured with a before/after report rather than eyeballed.
+
+A case may also carry `expected_suspicious`, which scores the anomaly flag in a separate section of the report. It is optional by design: a case without it is **excluded** from that metric rather than assumed `false`, so the category fixtures need no anomaly verdict invented for them. When adding a weekend case, verify the weekday of the date — the calendar check is real arithmetic, not a label.
 
 ## Tests
 

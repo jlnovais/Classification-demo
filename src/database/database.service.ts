@@ -72,6 +72,14 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       -- Kept so a failed PDF extraction can be traced back to an actual file.
       ALTER TABLE receipts ADD COLUMN IF NOT EXISTS source_filename TEXT;
       ALTER TABLE receipts ADD COLUMN IF NOT EXISTS source_bytes INTEGER;
+
+      -- The anomaly verdict. The DEFAULT backfills pre-existing rows as not
+      -- suspicious, which is what they are: they were never assessed, and they
+      -- carry no reason. anomaly_evidence gets no column of its own - it is
+      -- reasoning scaffolding, and it is already kept in raw_response.
+      ALTER TABLE receipts
+        ADD COLUMN IF NOT EXISTS is_suspicious BOOLEAN NOT NULL DEFAULT false;
+      ALTER TABLE receipts ADD COLUMN IF NOT EXISTS flag_reason TEXT;
     `);
   }
 }

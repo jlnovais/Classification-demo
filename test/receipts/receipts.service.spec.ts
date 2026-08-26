@@ -58,6 +58,43 @@ describe('ReceiptsService', () => {
     expect(result.total_amount).toBe(4.5);
     expect(result.confidence_score).toBe(0.95);
     expect(result.categories).toEqual(['Food']);
+    expect(result.is_suspicious).toBe(false);
+    expect(result.flag_reason).toBeNull();
+  });
+
+  it('persists the anomaly verdict and returns it', async () => {
+    const flagged = {
+      ...extraction(),
+      is_suspicious: true,
+      flag_reason: 'A single steak at 450.00 EUR is implausible.',
+    };
+    repository.createPending.mockResolvedValue('receipt-5');
+    claude.extractReceipt.mockResolvedValue(flagged);
+    repository.findById.mockResolvedValue({
+      ...record('receipt-5'),
+      is_suspicious: true,
+      flag_reason: 'A single steak at 450.00 EUR is implausible.',
+    });
+
+    const result = await service.parseReceipt({
+      raw_text: 'Talho do Bairro - 10/06/2026. Bife 1. Total: 450.00 EUR.',
+    });
+
+    // The verdict has to reach the row, not just the response - a flag that is
+    // not persisted cannot be reported on later.
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
+    expect(repository.completeWithExtraction).toHaveBeenCalledWith(
+      'receipt-5',
+      expect.objectContaining({
+        is_suspicious: true,
+        flag_reason: 'A single steak at 450.00 EUR is implausible.',
+      }),
+      expect.anything(),
+    );
+    expect(result.is_suspicious).toBe(true);
+    expect(result.flag_reason).toBe(
+      'A single steak at 450.00 EUR is implausible.',
+    );
   });
 
   it('marks the receipt as failed when extraction throws', async () => {
@@ -98,6 +135,8 @@ describe('ReceiptsService', () => {
     expect(result.total_amount).toBe(4.5);
     expect(result.confidence_score).toBe(0.95);
     expect(result.categories).toEqual(['Food']);
+    expect(result.is_suspicious).toBe(false);
+    expect(result.flag_reason).toBeNull();
   });
 
   it('marks the receipt as failed when PDF extraction throws', async () => {
@@ -127,6 +166,9 @@ function extraction() {
     category_evidence: 'The receipt lists groceries.',
     categories: ['Food' as const],
     confidence_score: 0.95,
+    anomaly_evidence: 'A weekday grocery run at 4.50 EUR; nothing is odd.',
+    is_suspicious: false,
+    flag_reason: null,
   };
 }
 
@@ -141,6 +183,8 @@ function record(id: string) {
     currency: 'EUR',
     payment_method: 'Card',
     confidence_score: '0.95',
+    is_suspicious: false,
+    flag_reason: null,
     status: 'completed',
     created_at: new Date('2026-08-12T10:00:00Z'),
     categories: ['Food'],

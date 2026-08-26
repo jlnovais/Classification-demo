@@ -6,7 +6,9 @@
       "Bash(npx nest *)",
       "Bash(npx eslint *)",
       "Bash(npx jest *)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "Bash(node -e ' *)"
     ]
   }
 }

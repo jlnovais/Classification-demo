@@ -1,0 +1,949 @@
+{
+  "label": "after-anomalies",
+  "model": "claude-haiku-4-5",
+  "scores": {
+    "categories": [
+      {
+        "category": "Food",
+        "support": 10,
+        "tp": 7,
+        "fp": 0,
+        "fn": 3,
+        "precision": 1,
+        "recall": 0.7,
+        "f1": 0.8235294117647058
+      },
+      {
+        "category": "Home & Kitchen",
+        "support": 8,
+        "tp": 8,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      {
+        "category": "Transportation",
+        "support": 6,
+        "tp": 6,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      {
+        "category": "Health",
+        "support": 5,
+        "tp": 5,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      {
+        "category": "Clothing",
+        "support": 3,
+        "tp": 3,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      {
+        "category": "Education",
+        "support": 3,
+        "tp": 3,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      {
+        "category": "Housing",
+        "support": 3,
+        "tp": 3,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      {
+        "category": "Leisure",
+        "support": 3,
+        "tp": 3,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      {
+        "category": "Travel & Accommodation",
+        "support": 3,
+        "tp": 3,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      {
+        "category": "Electronics",
+        "support": 2,
+        "tp": 2,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      {
+        "category": "Household Supplies",
+        "support": 2,
+        "tp": 2,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      {
+        "category": "Personal Care",
+        "support": 2,
+        "tp": 2,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      {
+        "category": "Services & Fees",
+        "support": 2,
+        "tp": 2,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      {
+        "category": "Other",
+        "support": 1,
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      {
+        "category": "Prepared food or drinks",
+        "support": 0,
+        "tp": 0,
+        "fp": 4,
+        "fn": 0,
+        "precision": 0,
+        "recall": 0,
+        "f1": 0
+      }
+    ],
+    "micro": {
+      "precision": 0.9259259259259259,
+      "recall": 0.9433962264150944,
+      "f1": 0.9345794392523364
+    },
+    "exactMatchRate": 0.9166666666666666,
+    "flags": {
+      "labelled": 8,
+      "tp": 5,
+      "fp": 0,
+      "fn": 0,
+      "tn": 3,
+      "precision": 1,
+      "recall": 1,
+      "f1": 1,
+      "accuracy": 1
+    },
+    "errors": 0
+  },
+  "results": [
+    {
+      "id": "tasco-spoons",
+      "raw_text": "Tasco coiso, Guimarães, Portugal - 13/08/2026. Colheres 3. Total: 3.0 EUR. Visa.",
+      "expected": [
+        "Home & Kitchen"
+      ],
+      "got": [
+        "Home & Kitchen"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "The receipt is from a small tavern (tasco) selling spoons (colheres), which are Home & Kitchen items.",
+      "suspicious": false
+    },
+    {
+      "id": "tasco-meal",
+      "raw_text": "Tasco do Zé, Guimarães - 13/08/2026. Francesinha 2, Cerveja 2. Total: 24.50 EUR. Multibanco.",
+      "expected": [
+        "Food"
+      ],
+      "got": [
+        "Prepared food or drinks"
+      ],
+      "exact": false,
+      "missing": [
+        "Food"
+      ],
+      "spurious": [
+        "Prepared food or drinks"
+      ],
+      "evidence": "The receipt is from a tasco (small tavern) listing prepared food and drinks for immediate consumption.",
+      "suspicious": false
+    },
+    {
+      "id": "tasco-no-items",
+      "raw_text": "Tasco coiso, Guimarães - 13/08/2026. Total: 18.40 EUR. Visa.",
+      "expected": [
+        "Food"
+      ],
+      "got": [
+        "Prepared food or drinks"
+      ],
+      "exact": false,
+      "missing": [
+        "Food"
+      ],
+      "spurious": [
+        "Prepared food or drinks"
+      ],
+      "evidence": "No item details are provided on the receipt, so categorization relies on the merchant type: a tasco is a small tavern serving prepared food and drinks.",
+      "suspicious": false
+    },
+    {
+      "id": "bakery-bread-knife",
+      "raw_text": "Padaria Central, Braga - 02/07/2026. Faca de pão 1. Total: 12.90 EUR. Dinheiro.",
+      "expected": [
+        "Home & Kitchen"
+      ],
+      "got": [
+        "Home & Kitchen"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "A faca de pão (bread knife) is a kitchen utensil, categorized as Home & Kitchen.",
+      "suspicious": false
+    },
+    {
+      "id": "bakery-bread",
+      "raw_text": "Padaria Central, Braga - 02/07/2026. Pão de forma 2, Croissants 4. Total: 6.35 EUR. Dinheiro.",
+      "expected": [
+        "Food"
+      ],
+      "got": [
+        "Food"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "The merchant is a bakery (padaria) and the items are bread and pastries meant for consumption.",
+      "suspicious": false
+    },
+    {
+      "id": "pharmacy-toiletries",
+      "raw_text": "Farmácia Sá, Porto - 11/08/2026. Champô anticaspa 1, Escova de dentes 2. Total: 14.20 EUR. Visa.",
+      "expected": [
+        "Personal Care"
+      ],
+      "got": [
+        "Personal Care"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "Both items are personal care products: shampoo and toothbrushes are toiletries.",
+      "suspicious": false
+    },
+    {
+      "id": "pharmacy-medication",
+      "raw_text": "Farmácia Sá, Porto - 11/08/2026. Paracetamol 1000mg 1, Xarope para a tosse 1. Total: 9.80 EUR. Visa.",
+      "expected": [
+        "Health"
+      ],
+      "got": [
+        "Health"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "Both items are over-the-counter medications purchased at a pharmacy.",
+      "suspicious": false
+    },
+    {
+      "id": "supermarket-three-way",
+      "raw_text": "Continente, Guimarães - 14/08/2026. Leite 6, Arroz 1, Detergente da louça 1, Frigideira 24cm 1. Total: 41.15 EUR. Visa.",
+      "expected": [
+        "Food",
+        "Home & Kitchen",
+        "Household Supplies"
+      ],
+      "got": [
+        "Food",
+        "Home & Kitchen",
+        "Household Supplies"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "The receipt lists grocery items including milk and rice, dishwashing detergent, and a frying pan, indicating a supermarket purchase spanning Food, Household Supplies, and Home & Kitchen categories.",
+      "suspicious": false
+    },
+    {
+      "id": "supermarket-groceries",
+      "raw_text": "Pingo Doce, Braga - 05/08/2026. Frango 1, Batatas 2kg, Tomate 1kg, Iogurtes 4. Total: 18.72 EUR. MBWay.",
+      "expected": [
+        "Food"
+      ],
+      "got": [
+        "Food"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "All items are groceries from a supermarket: chicken, potatoes, tomatoes, and yogurts are all food products.",
+      "suspicious": false
+    },
+    {
+      "id": "fuel",
+      "raw_text": "Galp, A3 Área de Serviço - 09/08/2026. Gasóleo 42.10 L. Total: 68.90 EUR. Visa.",
+      "expected": [
+        "Transportation"
+      ],
+      "got": [
+        "Transportation"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "The receipt is from a fuel station selling diesel (gasóleo), which is a transportation fuel.",
+      "suspicious": true,
+      "flag_reason": "Issued on a Sunday."
+    },
+    {
+      "id": "fuel-and-snack",
+      "raw_text": "BP Guimarães - 09/08/2026. Gasolina 95 30 L, Sandes de queijo 1, Água 0.5L 1. Total: 55.40 EUR. Visa.",
+      "expected": [
+        "Food",
+        "Transportation"
+      ],
+      "got": [
+        "Food",
+        "Prepared food or drinks",
+        "Transportation"
+      ],
+      "exact": false,
+      "missing": [],
+      "spurious": [
+        "Prepared food or drinks"
+      ],
+      "evidence": "The receipt includes fuel (transportation), a cheese sandwich (prepared food), and bottled water (food/beverages).",
+      "suspicious": true,
+      "flag_reason": "Issued on a Sunday."
+    },
+    {
+      "id": "tolls",
+      "raw_text": "Via Verde - Portagens Julho 2026. Total: 34.80 EUR. Débito direto.",
+      "expected": [
+        "Transportation"
+      ],
+      "got": [
+        "Transportation"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "Via Verde is a Portuguese tolling system; the receipt name explicitly states 'Portagens' (tolls) for July 2026.",
+      "suspicious": false
+    },
+    {
+      "id": "parking",
+      "raw_text": "Saba Parque, Porto - 12/08/2026. Estacionamento 3h. Total: 4.50 EUR. Multibanco.",
+      "expected": [
+        "Transportation"
+      ],
+      "got": [
+        "Transportation"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "The receipt is for 3 hours of parking, which is a transportation expense.",
+      "suspicious": false
+    },
+    {
+      "id": "car-service",
+      "raw_text": "Auto Reparações Silva, Famalicão - 21/07/2026. Mudança de óleo, Filtro de ar 1. Total: 96.00 EUR. Transferência bancária.",
+      "expected": [
+        "Transportation"
+      ],
+      "got": [
+        "Transportation"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "Both items are vehicle maintenance parts and services typical of an auto repair shop.",
+      "suspicious": false
+    },
+    {
+      "id": "hairdresser",
+      "raw_text": "Cabeleireiro Estilo, Guimarães - 08/08/2026. Corte de cabelo 1. Total: 15.00 EUR. Dinheiro.",
+      "expected": [
+        "Personal Care"
+      ],
+      "got": [
+        "Personal Care"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "The receipt is from a hair salon (Cabeleireiro Estilo) and lists a haircut service, which is personal care.",
+      "suspicious": true,
+      "flag_reason": "Issued on a Saturday."
+    },
+    {
+      "id": "clothing",
+      "raw_text": "Zara, Braga Parque - 03/08/2026. T-shirt 2, Calças de ganga 1. Total: 59.95 EUR. Visa.",
+      "expected": [
+        "Clothing"
+      ],
+      "got": [
+        "Clothing"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "The receipt is from Zara, a clothing retailer, and lists t-shirts and jeans (calças de ganga).",
+      "suspicious": false
+    },
+    {
+      "id": "shoes",
+      "raw_text": "Sapataria Nova, Guimarães - 19/07/2026. Sapatilhas 1. Total: 74.90 EUR. MBWay.",
+      "expected": [
+        "Clothing"
+      ],
+      "got": [
+        "Clothing"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "The receipt is from a shoe store (sapataria) and lists sapatilhas (sneakers), which are footwear.",
+      "suspicious": true,
+      "flag_reason": "Issued on a Sunday."
+    },
+    {
+      "id": "hotel",
+      "raw_text": "Hotel da Oliveira, Guimarães - 01/08/2026 a 03/08/2026. 2 noites, quarto duplo. Total: 180.00 EUR. Visa.",
+      "expected": [
+        "Travel & Accommodation"
+      ],
+      "got": [
+        "Travel & Accommodation"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "The receipt is from a hotel documenting an accommodation stay for two nights.",
+      "suspicious": true,
+      "flag_reason": "Issued on a Saturday."
+    },
+    {
+      "id": "flight",
+      "raw_text": "TAP Air Portugal - Reserva ABC123. Lisboa-Porto, 22/08/2026. Total: 89.00 EUR. Visa.",
+      "expected": [
+        "Travel & Accommodation"
+      ],
+      "got": [
+        "Travel & Accommodation"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "The receipt is for an airline reservation with no itemized products or services listed.",
+      "suspicious": true,
+      "flag_reason": "Issued on a Saturday."
+    },
+    {
+      "id": "cinema",
+      "raw_text": "NOS Cinemas, Braga - 10/08/2026. 2 bilhetes. Total: 15.00 EUR. Multibanco.",
+      "expected": [
+        "Leisure"
+      ],
+      "got": [
+        "Leisure"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "Cinema tickets are a leisure activity.",
+      "suspicious": false
+    },
+    {
+      "id": "gym",
+      "raw_text": "Ginásio Fitness Hub - Mensalidade Agosto 2026. Total: 39.90 EUR. Débito direto.",
+      "expected": [
+        "Leisure"
+      ],
+      "got": [
+        "Leisure"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "The merchant is a gym (ginásio) offering monthly membership (mensalidade), which is a leisure activity subscription.",
+      "suspicious": true,
+      "flag_reason": "Missing date on an otherwise complete receipt with merchant name, amount, currency, and payment method specified."
+    },
+    {
+      "id": "electricity",
+      "raw_text": "EDP Comercial - Fatura de eletricidade, Julho 2026. Total: 61.23 EUR. Débito direto.",
+      "expected": [
+        "Housing"
+      ],
+      "got": [
+        "Housing"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "The receipt is an electricity invoice from a utility company, which falls under Housing.",
+      "suspicious": false
+    },
+    {
+      "id": "internet-phone",
+      "raw_text": "MEO - Fatura mensal internet e telefone, Agosto 2026. Total: 44.99 EUR. Débito direto.",
+      "expected": [
+        "Housing"
+      ],
+      "got": [
+        "Housing"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "The merchant MEO provides internet and phone services, which are utilities classified as Housing.",
+      "suspicious": true,
+      "flag_reason": "Issued on a Saturday."
+    },
+    {
+      "id": "rent",
+      "raw_text": "Recibo de renda - Apartamento Rua da Liberdade 12, Guimarães. Agosto 2026. Total: 550.00 EUR. Transferência bancária.",
+      "expected": [
+        "Housing"
+      ],
+      "got": [
+        "Housing"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "The receipt is a rent payment (recibo de renda) for an apartment, clearly falling under Housing.",
+      "suspicious": true,
+      "flag_reason": "Issued on a Saturday."
+    },
+    {
+      "id": "computer-accessories",
+      "raw_text": "Worten, Braga Parque - 07/08/2026. Rato sem fios 1, Cabo HDMI 2m 1. Total: 32.98 EUR. Visa.",
+      "expected": [
+        "Electronics"
+      ],
+      "got": [
+        "Electronics"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "Both line items are computer peripherals and accessories, which are classified as Electronics.",
+      "suspicious": false
+    },
+    {
+      "id": "kettle-at-electronics-store",
+      "raw_text": "Worten, Braga Parque - 07/08/2026. Chaleira elétrica 1. Total: 24.99 EUR. Visa.",
+      "expected": [
+        "Home & Kitchen"
+      ],
+      "got": [
+        "Home & Kitchen"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "The receipt lists an electric kettle, which is a small kitchen appliance.",
+      "suspicious": false
+    },
+    {
+      "id": "textbook",
+      "raw_text": "Livraria Bertrand, Porto - 15/07/2026. Manual de Álgebra Linear 1. Total: 38.50 EUR. Visa.",
+      "expected": [
+        "Education"
+      ],
+      "got": [
+        "Education"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "The receipt is from a bookstore (Livraria Bertrand) and the item is a textbook (Álgebra Linear manual), which is an educational resource.",
+      "suspicious": false
+    },
+    {
+      "id": "novel",
+      "raw_text": "Livraria Bertrand, Porto - 15/07/2026. Romance policial 1. Total: 17.90 EUR. Visa.",
+      "expected": [
+        "Leisure"
+      ],
+      "got": [
+        "Leisure"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "The item is a crime novel purchased at a bookstore, which is leisure reading material.",
+      "suspicious": false
+    },
+    {
+      "id": "training-course",
+      "raw_text": "Formação Profissional XPTO - Curso de Excel avançado. Total: 250.00 EUR. Transferência bancária.",
+      "expected": [
+        "Education"
+      ],
+      "got": [
+        "Education"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "The receipt is for an advanced Excel course, which is educational training.",
+      "suspicious": false
+    },
+    {
+      "id": "bank-fee",
+      "raw_text": "Banco Millennium - Comissão de manutenção de conta, Agosto 2026. Total: 5.20 EUR. Débito em conta.",
+      "expected": [
+        "Services & Fees"
+      ],
+      "got": [
+        "Services & Fees"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "This is a bank account maintenance fee, which is a financial service charge.",
+      "suspicious": true,
+      "flag_reason": "Missing specific date on an otherwise complete receipt; only month and year are provided rather than a full ISO 8601 date."
+    },
+    {
+      "id": "car-insurance",
+      "raw_text": "Fidelidade Seguros - Prémio seguro automóvel, 2 semestre 2026. Total: 142.60 EUR. Débito direto.",
+      "expected": [
+        "Services & Fees"
+      ],
+      "got": [
+        "Services & Fees"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "The receipt is for a vehicle insurance premium, which belongs to Services & Fees.",
+      "suspicious": false
+    },
+    {
+      "id": "dentist",
+      "raw_text": "Clínica Dentária Sorriso, Guimarães - 06/08/2026. Consulta + limpeza. Total: 55.00 EUR. Multibanco.",
+      "expected": [
+        "Health"
+      ],
+      "got": [
+        "Health"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "Both items are dental services provided by a dental clinic.",
+      "suspicious": false
+    },
+    {
+      "id": "optician",
+      "raw_text": "Óptica Central, Braga - 28/07/2026. Óculos graduados 1. Total: 165.00 EUR. Visa.",
+      "expected": [
+        "Health"
+      ],
+      "got": [
+        "Health"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "Óculos graduados (prescription glasses) are medical optical devices dispensed by an optician.",
+      "suspicious": false
+    },
+    {
+      "id": "vet",
+      "raw_text": "Clínica Veterinária Amigo Fiel, Guimarães - 04/08/2026. Consulta + vacina gato. Total: 42.00 EUR. Multibanco.",
+      "expected": [
+        "Other"
+      ],
+      "got": [
+        "Other"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "Veterinary services for a cat fall under Other, as veterinary care is not covered by the standard expense categories.",
+      "suspicious": false
+    },
+    {
+      "id": "cleaning-supplies",
+      "raw_text": "Mercadona, Guimarães - 16/08/2026. Lixívia 1, Rolos de cozinha 2, Sacos do lixo 1. Total: 8.45 EUR. MBWay.",
+      "expected": [
+        "Household Supplies"
+      ],
+      "got": [
+        "Household Supplies"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "All items are cleaning and household consumables: bleach, kitchen paper rolls, and bin bags.",
+      "suspicious": true,
+      "flag_reason": "Issued on a Sunday."
+    },
+    {
+      "id": "cafe-mug",
+      "raw_text": "Café Central, Guimarães - 17/08/2026. Caneca de porcelana 1. Total: 7.50 EUR. Dinheiro.",
+      "expected": [
+        "Home & Kitchen"
+      ],
+      "got": [
+        "Home & Kitchen"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "A porcelain mug is a durable household item sold at a café, categorized as Home & Kitchen.",
+      "suspicious": false
+    },
+    {
+      "id": "english-restaurant",
+      "raw_text": "The Corner Bistro, Dublin - 2026-07-30. 2x Burger, 1x Cider. Total: EUR 38.20. Card.",
+      "expected": [
+        "Food"
+      ],
+      "got": [
+        "Prepared food or drinks"
+      ],
+      "exact": false,
+      "missing": [
+        "Food"
+      ],
+      "spurious": [
+        "Prepared food or drinks"
+      ],
+      "evidence": "The items are food and drinks prepared for immediate consumption at a bistro.",
+      "suspicious": false
+    },
+    {
+      "id": "cutlery-set",
+      "raw_text": "El Corte Inglés, Lisboa - 25/07/2026. Conjunto de talheres 24 peças 1, Toalha de mesa 1. Total: 89.00 EUR. Visa.",
+      "expected": [
+        "Home & Kitchen"
+      ],
+      "got": [
+        "Home & Kitchen"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "Both items are home and kitchen goods: cutlery set and table towel are durable textiles and tableware for the home.",
+      "suspicious": true,
+      "flag_reason": "Issued on a Saturday."
+    },
+    {
+      "id": "furniture",
+      "raw_text": "IKEA Matosinhos - 12/07/2026. Estante BILLY 1, Almofadas 2. Total: 78.00 EUR. Visa.",
+      "expected": [
+        "Home & Kitchen"
+      ],
+      "got": [
+        "Home & Kitchen"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "The receipt lists a BILLY shelving unit and pillows, both durable home furnishings sold by IKEA.",
+      "suspicious": true,
+      "flag_reason": "Issued on a Sunday."
+    },
+    {
+      "id": "socks-and-towels",
+      "raw_text": "Primark, Braga - 20/07/2026. Meias 5 pares, Toalhas de banho 2. Total: 24.30 EUR. Multibanco.",
+      "expected": [
+        "Clothing",
+        "Home & Kitchen"
+      ],
+      "got": [
+        "Clothing",
+        "Home & Kitchen"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "Socks are clothing items and bath towels are home textiles, both from a clothing and home goods retailer.",
+      "suspicious": false
+    },
+    {
+      "id": "anomaly-weekend-groceries",
+      "raw_text": "Continente, Braga - 15/08/2026. Leite 6, Pão 1, Maçãs 1kg. Total: 11.40 EUR. Multibanco.",
+      "expected": [
+        "Food"
+      ],
+      "got": [
+        "Food"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "The receipt is from a supermarket and lists milk, bread, and apples, which are all food items.",
+      "expected_suspicious": true,
+      "suspicious": true,
+      "flag_reason": "Issued on a Saturday."
+    },
+    {
+      "id": "anomaly-weekday-control",
+      "raw_text": "Continente, Braga - 13/08/2026. Leite 6, Pão 1, Maçãs 1kg. Total: 11.40 EUR. Multibanco.",
+      "expected": [
+        "Food"
+      ],
+      "got": [
+        "Food"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "All three items are grocery products for consumption: milk, bread, and apples.",
+      "expected_suspicious": false,
+      "suspicious": false
+    },
+    {
+      "id": "anomaly-absurd-steak",
+      "raw_text": "Talho do Bairro, Guimarães - 10/06/2026. Bife da vazia 1. Total: 450.00 EUR. Dinheiro.",
+      "expected": [
+        "Food"
+      ],
+      "got": [
+        "Food"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "The merchant is a butcher shop (talho) and the item is a cut of beef (bife da vazia).",
+      "expected_suspicious": true,
+      "suspicious": true,
+      "flag_reason": "A single cut of beef priced at 450 EUR is unusually expensive for a typical butcher shop transaction."
+    },
+    {
+      "id": "anomaly-item-merchant-mismatch",
+      "raw_text": "Farmácia Central, Porto - 20/05/2026. Portátil Lenovo 1, Ibuprofeno 400mg 1. Total: 899.00 EUR. Visa.",
+      "expected": [
+        "Electronics",
+        "Health"
+      ],
+      "got": [
+        "Electronics",
+        "Health"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "The line items include a laptop computer and medication, categorizing this as Electronics and Health respectively.",
+      "expected_suspicious": true,
+      "suspicious": true,
+      "flag_reason": "A laptop (Electronics) should not typically be sold at a pharmacy (Health); this item does not fit the merchant type."
+    },
+    {
+      "id": "anomaly-missing-total",
+      "raw_text": "Farmácia Sá, Coimbra - 12/03/2026. Ibuprofeno 400mg 2, Compressas esterilizadas 1. Multibanco.",
+      "expected": [
+        "Health"
+      ],
+      "got": [
+        "Health"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "Both items are medication and medical supplies purchased at a pharmacy.",
+      "expected_suspicious": true,
+      "suspicious": true,
+      "flag_reason": "Missing total amount on an otherwise complete receipt."
+    },
+    {
+      "id": "anomaly-total-does-not-reconcile",
+      "raw_text": "Papelaria Lopes, Lisboa - 25/02/2026. Canetas 2 x 0.80, Caderno 1 x 1.60. Total: 240.00 EUR. Cartão.",
+      "expected": [
+        "Education"
+      ],
+      "got": [
+        "Education"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "The receipt is from a papelaria (stationery shop) selling pens and a notebook, which are study supplies.",
+      "expected_suspicious": true,
+      "suspicious": true,
+      "flag_reason": "The total of 240.00 EUR does not reconcile with the item prices listed (2×0.80 + 1×1.60 = 3.20 EUR), suggesting a data entry error or fraud."
+    },
+    {
+      "id": "anomaly-expensive-but-ordinary",
+      "raw_text": "Hotel Ribeira, Porto - 10/06/2026. Dormida dupla 2 noites. Total: 410.00 EUR. Visa.",
+      "expected": [
+        "Travel & Accommodation"
+      ],
+      "got": [
+        "Travel & Accommodation"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "The receipt is from a hotel charging for a double room stay over 2 nights, which is accommodation.",
+      "expected_suspicious": false,
+      "suspicious": false
+    },
+    {
+      "id": "anomaly-ordinary-fuel",
+      "raw_text": "Galp, Vila Nova de Famalicão - 20/05/2026. Gasóleo 45.20L. Total: 68.90 EUR. Visa.",
+      "expected": [
+        "Transportation"
+      ],
+      "got": [
+        "Transportation"
+      ],
+      "exact": true,
+      "missing": [],
+      "spurious": [],
+      "evidence": "The receipt is for diesel fuel (gasóleo), which is a transportation fuel.",
+      "expected_suspicious": false,
+      "suspicious": false
+    }
+  ]
+}

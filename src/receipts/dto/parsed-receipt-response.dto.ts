@@ -64,6 +64,25 @@ export class ParsedReceiptResponseDto {
   confidence_score: number | null;
 
   @ApiProperty({
+    example: false,
+    description:
+      'True when at least one anomaly check fired: an atypical amount for the ' +
+      'categories present, items that do not fit the merchant, a total that ' +
+      'does not reconcile with the item lines, a missing total or date, or a ' +
+      'receipt issued at the weekend.',
+  })
+  is_suspicious: boolean;
+
+  @ApiPropertyOptional({
+    example:
+      'A single cut of meat at 450.00 EUR is far above a normal butcher price.',
+    nullable: true,
+    description:
+      'Why the receipt was flagged. Null when is_suspicious is false.',
+  })
+  flag_reason: string | null;
+
+  @ApiProperty({
     example: 'completed',
     enum: ['pending', 'completed', 'failed'],
   })

@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Anthropic, { type ParsedMessage } from '@anthropic-ai/sdk';
 import { jsonSchemaOutputFormat } from '@anthropic-ai/sdk/helpers/json-schema';
+import { applyCalendarAnomalies } from './anomaly';
 import {
   describeClaudeError,
   formatClaudeError,
@@ -98,6 +99,9 @@ const PROMPT_BODY = `Field rules:
 - "category_evidence" is one short sentence naming the evidence you used to choose the categories.
 - "categories" holds every category that applies to the receipt as a whole.
 - "confidence_score" is your confidence in the overall extraction, between 0 and 1.
+- "anomaly_evidence" is one short sentence naming the anomaly checks you ran and what they showed.
+- "is_suspicious" is true when at least one of the anomaly checks below fires.
+- "flag_reason" is one sentence explaining the suspicion, or null when nothing fired.
 
 Categories - use only these names, spelled exactly as written:
 ${CATEGORY_BLOCK}
@@ -107,6 +111,14 @@ How to categorize:
 2. The merchant name or type is weaker evidence. Rely on it only when the receipt lists no items, or the item names are unrecognizable. A tavern that sells spoons is Home & Kitchen, not Food; a bookshop that sells a novel is Leisure, not Education.
 3. Assign every category that applies. A supermarket receipt with milk, dishwashing detergent and a frying pan is Food, Household Supplies and Home & Kitchen at once.
 4. Use "Other" only when nothing else fits.
+
+Anomaly checks:
+Judge the receipt against these checks and set "is_suspicious" to true if any of them fires.
+1. A total or an item price that is atypically high for the categories and items present - a single cut of meat at 450 EUR, a coffee at 80 EUR.
+2. Items that do not fit the merchant or the categories assigned, such as a laptop on a pharmacy receipt.
+3. A total that does not plausibly reconcile with the item lines listed.
+4. A missing total, or a missing date on an otherwise complete receipt.
+Set "flag_reason" to one sentence naming the check that fired and the value that triggered it, or null when nothing fired. Flag what is genuinely odd, not merely expensive: a hotel at 400 EUR or a supermarket run at 150 EUR is ordinary. Do not consider the day of the week - that check is applied separately.
 
 Language:
 Receipts may be written in Portuguese, English, or a mix of both. Work out what each item actually is before categorizing it. Portuguese terms that are easy to misread: "colheres" = spoons, "garfos" = forks, "facas" = knives, "talheres" = cutlery, "tachos" and "panelas" = pots and pans, "frigideira" = frying pan, "caneca" = mug, "louca" = crockery (so "detergente da louca" is dishwashing detergent, a supply), "toalhas" = towels, "lixivia" = bleach, "tasco" = a small tavern, "padaria" = bakery, "farmacia" = pharmacy, "papelaria" = stationery shop, "coiso" = a slang filler word carrying no meaning.
@@ -123,9 +135,12 @@ ${PROMPT_BODY.replace('{SOURCE}', SOURCE_NOUN[source])}`;
 }
 
 /**
- * The text-endpoint prompt. Composed rather than written out, but byte-identical
- * to the prompt shipped before the PDF endpoint existed - the eval baselines and
- * the `prompt_used` column of existing rows stay comparable.
+ * The text-endpoint prompt. Composed rather than written out. It stayed
+ * byte-identical to the pre-PDF prompt until the anomaly checks were added, so
+ * eval reports and `prompt_used` values from before that change are no longer
+ * comparable; anything from this version on is. The invariant that still holds
+ * is the one that matters: both prompts come from the same `PROMPT_BODY`, so
+ * they cannot drift apart.
  */
 const SYSTEM_PROMPT = buildSystemPrompt('text');
 const PDF_SYSTEM_PROMPT = buildSystemPrompt('pdf');
@@ -201,6 +216,25 @@ const RECEIPT_JSON_SCHEMA = {
       type: 'number',
       description: 'Confidence in the extraction, between 0 and 1',
     },
+    // The anomaly verdict comes last on purpose: by this point the items,
+    // categories and totals are all generated, so the model is judging an
+    // extraction it can see rather than one it is still working out. The
+    // evidence sentence precedes the boolean for the same reason
+    // `category_evidence` precedes `categories`.
+    anomaly_evidence: {
+      type: 'string',
+      description:
+        'One short sentence naming the anomaly checks run and what they showed',
+    },
+    is_suspicious: {
+      type: 'boolean',
+      description: 'True when at least one anomaly check fired',
+    },
+    flag_reason: {
+      ...nullableString,
+      description:
+        'Why the receipt is suspicious; null when is_suspicious is false',
+    },
   },
   required: [
     'merchant',
@@ -213,6 +247,9 @@ const RECEIPT_JSON_SCHEMA = {
     'category_evidence',
     'categories',
     'confidence_score',
+    'anomaly_evidence',
+    'is_suspicious',
+    'flag_reason',
   ],
   additionalProperties: false,
 } as const;
@@ -347,6 +384,7 @@ export class ClaudeService {
     return {
       ...response.parsed_output,
       categories: mergeCategories(response.parsed_output),
+      ...applyCalendarAnomalies(response.parsed_output),
     };
   }
 

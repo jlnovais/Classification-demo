@@ -11,6 +11,10 @@ export interface ReceiptRecord {
   currency: string | null;
   payment_method: string | null;
   confidence_score: string | null;
+  // BOOLEAN comes back from `pg` as a real boolean, unlike the NUMERIC columns
+  // above, which arrive as strings and are coerced in the service.
+  is_suspicious: boolean;
+  flag_reason: string | null;
   status: string;
   created_at: Date;
   categories: string[];
@@ -63,6 +67,8 @@ export class ReceiptsRepository {
         payment_method = $7,
         confidence_score = $8,
         raw_response = $9,
+        is_suspicious = $10,
+        flag_reason = $11,
         status = 'completed',
         updated_at = now()
       WHERE id = $1`,
@@ -76,6 +82,8 @@ export class ReceiptsRepository {
         extracted.payment_method,
         extracted.confidence_score,
         JSON.stringify(rawResponse),
+        extracted.is_suspicious,
+        extracted.flag_reason,
       ],
     );
 
@@ -95,7 +103,8 @@ export class ReceiptsRepository {
         r.id, r.merchant, r.location,
         to_char(r.receipt_date, 'YYYY-MM-DD') AS receipt_date,
         r.total_amount, r.currency,
-        r.payment_method, r.confidence_score, r.status, r.created_at,
+        r.payment_method, r.confidence_score,
+        r.is_suspicious, r.flag_reason, r.status, r.created_at,
         COALESCE(array_agg(c.name) FILTER (WHERE c.name IS NOT NULL), '{}') AS categories
       FROM receipts r
       LEFT JOIN receipt_categories rc ON rc.receipt_id = r.id
