@@ -2,6 +2,7 @@ import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ClaudeService, ExtractedReceipt } from '../claude/claude.service';
 import { ParsedReceiptResponseDto } from './dto/parsed-receipt-response.dto';
 import { ParseReceiptDto } from './dto/parse-receipt.dto';
+import { assessHistory } from './history-anomalies';
 import { ReceiptRecord, ReceiptsRepository } from './receipts.repository';
 
 @Injectable()
@@ -54,10 +55,21 @@ export class ReceiptsService {
   ): Promise<ParsedReceiptResponseDto> {
     try {
       const extracted = await extract();
+
+      // The history checks run between extraction and persistence, which is the
+      // only point where both are available: they need the finished extraction
+      // to build a deduplication key from, and their verdict has to be part of
+      // the row rather than an update after it.
+      const verdict = assessHistory(
+        extracted,
+        await this.repository.findHistory(receiptId, extracted),
+      );
+
       await this.repository.completeWithExtraction(
         receiptId,
         extracted,
         extracted,
+        verdict,
       );
 
       const record = await this.repository.findById(receiptId);
@@ -91,6 +103,7 @@ export class ReceiptsService {
           : null,
       is_suspicious: record.is_suspicious,
       flag_reason: record.flag_reason,
+      duplicate_of: record.duplicate_of,
       status: record.status,
       created_at: record.created_at,
     };

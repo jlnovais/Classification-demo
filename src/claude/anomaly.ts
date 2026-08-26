@@ -45,21 +45,42 @@ export function applyCalendarAnomalies(
   extracted: AnomalyFields,
 ): AnomalyVerdict {
   const weekend = weekendDayName(extracted.date);
-  if (!weekend) {
+  return unionAnomalies(extracted, weekend && `Issued on a ${weekend}.`);
+}
+
+/**
+ * The union rule itself, shared by every check that runs outside the model:
+ * the calendar checks here and the history checks in
+ * `src/receipts/history-anomalies.ts`. A reason raised by any side is kept and
+ * the sentences are joined, so a receipt that is both a duplicate and a
+ * weekend submission reports both rather than whichever check ran last.
+ *
+ * `null` and `false` are accepted as "this check did not fire" so a caller can
+ * pass a short-circuiting expression straight in. Nothing firing returns the
+ * base verdict untouched - notably it does not normalize the model's own
+ * sentence, which is stored exactly as the model wrote it.
+ */
+export function unionAnomalies(
+  base: AnomalyVerdict,
+  ...reasons: (string | null | undefined | false)[]
+): AnomalyVerdict {
+  const fired = reasons
+    .map((reason) => (reason ? reason.trim() : ''))
+    .filter((reason) => reason.length > 0);
+
+  if (fired.length === 0) {
     return {
-      is_suspicious: extracted.is_suspicious,
-      flag_reason: extracted.flag_reason,
+      is_suspicious: base.is_suspicious,
+      flag_reason: base.flag_reason,
     };
   }
 
-  const calendarReason = `Issued on a ${weekend}.`;
-  const modelReason = extracted.flag_reason?.trim();
+  const baseReason = base.flag_reason?.trim();
+  const all = baseReason ? [baseReason, ...fired] : fired;
 
   return {
     is_suspicious: true,
-    flag_reason: modelReason
-      ? `${withFinalStop(modelReason)} ${calendarReason}`
-      : calendarReason,
+    flag_reason: all.map(withFinalStop).join(' '),
   };
 }
 
