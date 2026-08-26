@@ -1,9 +1,10 @@
 /**
- * Category-classification eval.
+ * Category-classification and anomaly-flag eval.
  *
  * Runs every labelled receipt in receipts.eval.json through the real
  * ClaudeService and reports per-category precision / recall / F1, so a prompt
- * or taxonomy change can be measured instead of guessed at.
+ * or taxonomy change can be measured instead of guessed at. Cases carrying an
+ * `expected_suspicious` label are additionally scored on the anomaly flag.
  *
  *   npm run eval
  *   npm run eval -- --label before --out reports/before.json
@@ -24,6 +25,11 @@ interface EvalCase {
   id: string;
   raw_text: string;
   expected_categories: string[];
+  /**
+   * Optional on purpose: only cases labelled for the anomaly flag are scored on
+   * it, so the original category fixtures need no verdict invented for them.
+   */
+  expected_suspicious?: boolean;
   note?: string;
 }
 
@@ -36,7 +42,23 @@ interface CaseResult {
   missing: string[];
   spurious: string[];
   evidence?: string;
+  expected_suspicious?: boolean;
+  suspicious?: boolean;
+  flag_reason?: string;
   error?: string;
+}
+
+/** Precision / recall over a single boolean prediction. */
+interface FlagScore {
+  labelled: number;
+  tp: number;
+  fp: number;
+  fn: number;
+  tn: number;
+  precision: number;
+  recall: number;
+  f1: number;
+  accuracy: number;
 }
 
 interface CategoryScore {
@@ -133,6 +155,9 @@ async function runCase(
         missing: expected.filter((c) => !got.includes(c)),
         spurious: got.filter((c) => !expected.includes(c)),
         evidence: extracted.category_evidence ?? undefined,
+        expected_suspicious: testCase.expected_suspicious,
+        suspicious: extracted.is_suspicious,
+        flag_reason: extracted.flag_reason ?? undefined,
       };
     } catch (error) {
       const retryable =
@@ -156,10 +181,47 @@ async function runCase(
   throw new Error('unreachable');
 }
 
+/**
+ * Scores the anomaly flag over the labelled cases only. An unlabelled case, or
+ * one whose extraction failed, is neither a hit nor a miss - it simply is not
+ * evidence about the flag, so it is excluded rather than counted as correct.
+ */
+function scoreFlags(results: CaseResult[]): FlagScore {
+  const labelled = results.filter(
+    (r) => r.expected_suspicious !== undefined && r.suspicious !== undefined,
+  );
+
+  let tp = 0;
+  let fp = 0;
+  let fn = 0;
+  let tn = 0;
+  for (const result of labelled) {
+    if (result.expected_suspicious && result.suspicious) tp++;
+    else if (result.suspicious) fp++;
+    else if (result.expected_suspicious) fn++;
+    else tn++;
+  }
+
+  const precision = ratio(tp, tp + fp);
+  const recall = ratio(tp, tp + fn);
+  return {
+    labelled: labelled.length,
+    tp,
+    fp,
+    fn,
+    tn,
+    precision,
+    recall,
+    f1: f1(precision, recall),
+    accuracy: ratio(tp + tn, labelled.length),
+  };
+}
+
 function score(results: CaseResult[]): {
   categories: CategoryScore[];
   micro: { precision: number; recall: number; f1: number };
   exactMatchRate: number;
+  flags: FlagScore;
   errors: number;
 } {
   const categories = new Set<string>();
@@ -212,6 +274,7 @@ function score(results: CaseResult[]): {
       results.filter((r) => r.exact).length,
       results.length,
     ),
+    flags: scoreFlags(results),
     errors: results.filter((r) => r.error).length,
   };
 }
@@ -255,6 +318,41 @@ function report(
   lines.push(
     `Exact set match: ${pct(scores.exactMatchRate)} (${results.filter((r) => r.exact).length}/${results.length})   Errors: ${scores.errors}`,
   );
+
+  lines.push('');
+  lines.push('=== Anomaly flag ===');
+  lines.push('');
+  const flags = scores.flags;
+  if (flags.labelled === 0) {
+    lines.push(
+      '  no labelled cases (add expected_suspicious to a case to score it)',
+    );
+  } else {
+    lines.push(
+      `  labelled: ${flags.labelled}   P ${pct(flags.precision)}   R ${pct(flags.recall)}   ` +
+        `F1 ${pct(flags.f1)}   accuracy ${pct(flags.accuracy)}   tp/fp/fn/tn ${flags.tp}/${flags.fp}/${flags.fn}/${flags.tn}`,
+    );
+
+    const flagWrong = results.filter(
+      (r) =>
+        r.expected_suspicious !== undefined &&
+        r.suspicious !== undefined &&
+        r.expected_suspicious !== r.suspicious,
+    );
+    if (flagWrong.length > 0) {
+      lines.push('');
+      lines.push(`  Flag mismatches (${flagWrong.length}):`);
+      for (const r of flagWrong) {
+        lines.push('');
+        lines.push(`    ${r.id}`);
+        lines.push(`      text     : ${r.raw_text}`);
+        lines.push(
+          `      expected : ${String(r.expected_suspicious)}   got: ${String(r.suspicious)}`,
+        );
+        if (r.flag_reason) lines.push(`      reason   : ${r.flag_reason}`);
+      }
+    }
+  }
 
   const wrong = results.filter((r) => !r.exact);
   if (wrong.length > 0) {

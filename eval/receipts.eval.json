@@ -1,5 +1,5 @@
 {
-  "description": "Hand-labelled receipts for measuring category classification. expected_categories is compared as a set; order does not matter. Replace and extend these with real receipts from your own data as you collect them.",
+  "description": "Hand-labelled receipts for measuring category classification. expected_categories is compared as a set; order does not matter. expected_suspicious is optional and scores the anomaly flag; a case without it is excluded from that metric rather than assumed false, so the category cases need no verdict invented for them. Replace and extend these with real receipts from your own data as you collect them.",
   "cases": [
     {
       "id": "tasco-spoons",
@@ -209,6 +209,63 @@
       "id": "socks-and-towels",
       "raw_text": "Primark, Braga - 20/07/2026. Meias 5 pares, Toalhas de banho 2. Total: 24.30 EUR. Multibanco.",
       "expected_categories": ["Clothing", "Home & Kitchen"]
+    },
+
+    {
+      "id": "anomaly-weekend-groceries",
+      "raw_text": "Continente, Braga - 15/08/2026. Leite 6, Pão 1, Maçãs 1kg. Total: 11.40 EUR. Multibanco.",
+      "expected_categories": ["Food"],
+      "expected_suspicious": true,
+      "note": "2026-08-15 is a Saturday. Nothing else is odd, so this isolates the calendar check applied in anomaly.ts."
+    },
+    {
+      "id": "anomaly-weekday-control",
+      "raw_text": "Continente, Braga - 13/08/2026. Leite 6, Pão 1, Maçãs 1kg. Total: 11.40 EUR. Multibanco.",
+      "expected_categories": ["Food"],
+      "expected_suspicious": false,
+      "note": "The same receipt on a Thursday. Paired with anomaly-weekend-groceries, it separates the weekend rule from everything else."
+    },
+    {
+      "id": "anomaly-absurd-steak",
+      "raw_text": "Talho do Bairro, Guimarães - 10/06/2026. Bife da vazia 1. Total: 450.00 EUR. Dinheiro.",
+      "expected_categories": ["Food"],
+      "expected_suspicious": true,
+      "note": "A Wednesday, so only the price can fire: a single steak at 450 EUR."
+    },
+    {
+      "id": "anomaly-item-merchant-mismatch",
+      "raw_text": "Farmácia Central, Porto - 20/05/2026. Portátil Lenovo 1, Ibuprofeno 400mg 1. Total: 899.00 EUR. Visa.",
+      "expected_categories": ["Electronics", "Health"],
+      "expected_suspicious": true,
+      "note": "A laptop on a pharmacy receipt. A Wednesday, so the merchant/item mismatch is the only check available."
+    },
+    {
+      "id": "anomaly-missing-total",
+      "raw_text": "Farmácia Sá, Coimbra - 12/03/2026. Ibuprofeno 400mg 2, Compressas esterilizadas 1. Multibanco.",
+      "expected_categories": ["Health"],
+      "expected_suspicious": true,
+      "note": "A Thursday with a full item list and no total at all. Deliberately not a restaurant: the anomaly cases must not inherit the Food / Prepared food or drinks dispute."
+    },
+    {
+      "id": "anomaly-total-does-not-reconcile",
+      "raw_text": "Papelaria Lopes, Lisboa - 25/02/2026. Canetas 2 x 0.80, Caderno 1 x 1.60. Total: 240.00 EUR. Cartão.",
+      "expected_categories": ["Education"],
+      "expected_suspicious": true,
+      "note": "A Wednesday. The listed items come to 3.20 EUR; the total says 240.00 EUR."
+    },
+    {
+      "id": "anomaly-expensive-but-ordinary",
+      "raw_text": "Hotel Ribeira, Porto - 10/06/2026. Dormida dupla 2 noites. Total: 410.00 EUR. Visa.",
+      "expected_categories": ["Travel & Accommodation"],
+      "expected_suspicious": false,
+      "note": "Expensive is not the same as anomalous. A Wednesday, and two hotel nights at 410 EUR is ordinary - this is the precision test."
+    },
+    {
+      "id": "anomaly-ordinary-fuel",
+      "raw_text": "Galp, Vila Nova de Famalicão - 20/05/2026. Gasóleo 45.20L. Total: 68.90 EUR. Visa.",
+      "expected_categories": ["Transportation"],
+      "expected_suspicious": false,
+      "note": "An unremarkable Wednesday tank of diesel. Nothing should fire."
     }
   ]
 }

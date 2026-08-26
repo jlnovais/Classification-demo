@@ -89,6 +89,8 @@ export class ReceiptsService {
         record.confidence_score !== null
           ? Number(record.confidence_score)
           : null,
+      is_suspicious: record.is_suspicious,
+      flag_reason: record.flag_reason,
       status: record.status,
       created_at: record.created_at,
     };
