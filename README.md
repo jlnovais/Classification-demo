@@ -72,12 +72,31 @@ Both endpoints return the same body:
   "categories": ["Food"],
   "payment_method": "Card",
   "confidence_score": 0.95,
+  "is_suspicious": false,
+  "flag_reason": null,
+  "duplicate_of": null,
   "status": "completed",
   "created_at": "…"
 }
 ```
 
 Each receipt can be associated with more than one category — the relationship is many-to-many (`receipts` ↔ `categories` via `receipt_categories`).
+
+## Anomaly, duplicate and outlier detection
+
+Every parsed receipt carries a verdict: `is_suspicious`, a one-sentence `flag_reason`, and `duplicate_of` when it repeats an earlier submission. Three kinds of check feed it, and the split between them is deliberate — each check lives where it can actually be answered:
+
+| Check | Where it runs | Why there |
+| --- | --- | --- |
+| Atypical price for the items, items that do not fit the merchant, a total that does not reconcile with the lines, a missing total or date | Claude, via the system prompt | Judgement about a single receipt: it needs to know that 450 EUR is absurd for a steak but ordinary for a hotel |
+| Issued at the weekend | `src/claude/anomaly.ts`, from the extracted date | Calendar arithmetic, which models get wrong; the prompt tells the model explicitly not to attempt it |
+| Exact duplicate, and a total far above what past receipts in the same categories cost | `src/receipts/history-anomalies.ts`, from two SQL queries | Neither is judgement: one is a key lookup, the other an aggregate, and the model has no view of the stored history at all |
+
+The deduplication key is the trimmed, case-folded merchant plus the date, total and currency, matched against earlier `completed` rows. A match is reported as a *candidate*, not a verdict — two separate purchases can legitimately share that key, so the earlier receipt's id comes back in `duplicate_of` for a human to compare against.
+
+The outlier check compares the total against the 90th percentile of earlier receipts in the same categories, and is deliberately blunt: it needs at least `MIN_CATEGORY_SAMPLE` earlier receipts in a category before that category counts at all, it measures against the *priciest* category on the receipt, and it only fires above `OUTLIER_MULTIPLE`× that percentile. It is there to catch the order of magnitude the model waved through, not to second-guess an expensive-but-ordinary receipt.
+
+Checks are unioned rather than overwritten, so a receipt that is both a duplicate and a weekend submission reports both reasons in `flag_reason`.
 
 ## Categories
 

@@ -24,9 +24,23 @@ Setup: copy `.env.template` to `.env`. `POSTGRES_HOST`, `POSTGRES_USER`, `POSTGR
 
 Nest app with three modules under `src/`: `database` (raw `pg`), `claude` (the model call), `receipts` (HTTP + persistence). Two endpoints, `POST /api/parse-receipt` (JSON `raw_text`) and `POST /api/parse-receipt-pdf` (multipart `file`), both returning the same `ParsedReceiptResponseDto`. Swagger at `/docs`.
 
-Request flow for both endpoints: `ReceiptsRepository` inserts a `pending` row (recording the exact system prompt in `prompt_used`) → `ClaudeService` extracts → the row is completed and categories linked, or marked `failed`. `ReceiptsService.extractInto` is the shared tail of both paths, so the two endpoints cannot diverge on persistence or failure bookkeeping.
+Request flow for both endpoints: `ReceiptsRepository` inserts a `pending` row (recording the exact system prompt in `prompt_used`) → `ClaudeService` extracts → the history checks run → the row is completed and categories linked, or marked `failed`. `ReceiptsService.extractInto` is the shared tail of both paths, so the two endpoints cannot diverge on persistence or failure bookkeeping.
 
 **No ORM and no migration tool.** `DatabaseService.migrate()` runs raw SQL on `onModuleInit`: a `CREATE TABLE IF NOT EXISTS` block for the original schema, then a second block of idempotent `ALTER`s for everything added since. `CREATE TABLE IF NOT EXISTS` is a no-op on an existing database, so **any new column or constraint must go in the ALTER block as an idempotent statement**, not into the CREATE block. All queries are parameterized SQL in `receipts.repository.ts`.
+
+### Anomaly checks
+
+Three sources feed one verdict (`is_suspicious`, `flag_reason`, `duplicate_of`), and which source owns a check is the design:
+
+- **Semantic, single-receipt** — the model, in `PROMPT_BODY`. Judgement it can make from the receipt alone.
+- **Calendar** — `src/claude/anomaly.ts`, from the extracted date. The prompt tells the model *not* to consider the day of the week; drop that line and weekends get flagged twice.
+- **History** — `src/receipts/history-anomalies.ts`, from `ReceiptsRepository.findHistory`. An exact duplicate (trimmed, case-folded merchant + date + total + currency, over `completed` rows) and a total above `OUTLIER_MULTIPLE`× the 90th percentile of the priciest category present. The model never sees the history, so neither check is asked of it.
+
+`unionAnomalies` in `src/claude/anomaly.ts` is the single merge rule for all three: any check firing raises the flag and its sentence is appended, so a duplicate *and* a weekend receipt reports both. When nothing outside the model fires, the model's own sentence is stored verbatim — unionAnomalies does not normalize it.
+
+The history checks are pure functions taking query results, not the pool, so the thresholds are testable without PostgreSQL. `ReceiptsRepository.completeWithExtraction` writes the *merged* verdict, passed as its fourth argument — not `extracted.is_suspicious`, which is only the model's half. An incomplete deduplication key (no merchant, date or total) means no lookup at all, otherwise every dateless receipt from one shop would match the last.
+
+The eval harness cannot cover these: it builds a Nest context with `ClaudeModule` only, so there is no history to cross-check. They are covered by `test/receipts/history-anomalies.spec.ts` instead.
 
 **Env validation** is hand-rolled: `src/config/validate-env.ts` is a generic factory (coerce by key list, then enforce required keys), and `src/config/env.validation.ts` is this app's key lists. `ConfigModule` runs it with `skipProcessEnv: true`, so a var not listed in `env.validation.ts` is invisible to `ConfigService` — adding an env var means adding it there.
 

@@ -80,6 +80,30 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       ALTER TABLE receipts
         ADD COLUMN IF NOT EXISTS is_suspicious BOOLEAN NOT NULL DEFAULT false;
       ALTER TABLE receipts ADD COLUMN IF NOT EXISTS flag_reason TEXT;
+
+      -- The earlier receipt this one duplicates, when the deduplication key
+      -- matched. The inline REFERENCES is carried by the ADD COLUMN, so it is
+      -- skipped along with the column on a re-run rather than being added
+      -- twice. ON DELETE SET NULL, not CASCADE: deleting the original must not
+      -- delete the copy that was flagged against it.
+      ALTER TABLE receipts ADD COLUMN IF NOT EXISTS duplicate_of UUID
+        REFERENCES receipts(id) ON DELETE SET NULL;
+    `);
+
+    // Indexes for the two history queries in `receipts.repository.ts`, which
+    // run on every parse and would otherwise scan the whole table as it grows.
+    await this.pool.query(`
+      -- The deduplication key, expressed the same way the lookup is: trimmed
+      -- and case-folded merchant. Partial on 'completed' because a pending or
+      -- failed row has no extraction to match against.
+      CREATE INDEX IF NOT EXISTS receipts_duplicate_key_idx
+        ON receipts (lower(btrim(merchant)), receipt_date, total_amount)
+        WHERE status = 'completed';
+
+      -- The category spread query joins from the category side, and the table's
+      -- primary key is (receipt_id, category_id), which cannot serve that.
+      CREATE INDEX IF NOT EXISTS receipt_categories_category_idx
+        ON receipt_categories (category_id);
     `);
   }
 }

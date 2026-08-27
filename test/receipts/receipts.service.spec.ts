@@ -29,6 +29,11 @@ describe('ReceiptsService', () => {
             completeWithExtraction: jest.fn(),
             markFailed: jest.fn(),
             findById: jest.fn(),
+            // Defaulted to an empty history so the cases that are not about the
+            // history checks read as if the database were empty.
+            findHistory: jest
+              .fn()
+              .mockResolvedValue({ duplicate: null, spreads: [] }),
           },
         },
       ],
@@ -54,6 +59,7 @@ describe('ReceiptsService', () => {
       'receipt-1',
       expect.objectContaining({ merchant: 'Fresh Grocer' }),
       expect.anything(),
+      { is_suspicious: false, flag_reason: null, duplicate_of: null },
     );
     expect(result.total_amount).toBe(4.5);
     expect(result.confidence_score).toBe(0.95);
@@ -85,15 +91,87 @@ describe('ReceiptsService', () => {
     // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
     expect(repository.completeWithExtraction).toHaveBeenCalledWith(
       'receipt-5',
-      expect.objectContaining({
+      expect.anything(),
+      expect.anything(),
+      {
         is_suspicious: true,
         flag_reason: 'A single steak at 450.00 EUR is implausible.',
-      }),
-      expect.anything(),
+        duplicate_of: null,
+      },
     );
     expect(result.is_suspicious).toBe(true);
     expect(result.flag_reason).toBe(
       'A single steak at 450.00 EUR is implausible.',
+    );
+  });
+
+  it('flags a receipt that repeats an earlier submission and records which one', async () => {
+    repository.createPending.mockResolvedValue('receipt-6');
+    claude.extractReceipt.mockResolvedValue(extraction());
+    repository.findHistory.mockResolvedValue({
+      duplicate: {
+        id: 'receipt-1',
+        created_at: new Date('2026-08-12T10:00:00Z'),
+      },
+      spreads: [],
+    });
+    repository.findById.mockResolvedValue(record('receipt-6'));
+
+    await service.parseReceipt({ raw_text: 'Fresh Grocer Downtown 4.50 EUR' });
+
+    // The history is looked up for the row being written, so the receipt cannot
+    // match itself, and the matched id is persisted alongside the sentence.
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
+    expect(repository.findHistory).toHaveBeenCalledWith(
+      'receipt-6',
+      expect.objectContaining({ merchant: 'Fresh Grocer' }),
+    );
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
+    expect(repository.completeWithExtraction).toHaveBeenCalledWith(
+      'receipt-6',
+      expect.anything(),
+      expect.anything(),
+      {
+        is_suspicious: true,
+        flag_reason:
+          'Same merchant, date and total as receipt receipt-1, submitted on ' +
+          '2026-08-12; possible duplicate submission.',
+        duplicate_of: 'receipt-1',
+      },
+    );
+  });
+
+  it('keeps the model verdict and the duplicate reason when both fire', async () => {
+    repository.createPending.mockResolvedValue('receipt-7');
+    claude.extractReceipt.mockResolvedValue({
+      ...extraction(),
+      is_suspicious: true,
+      flag_reason: 'The total does not reconcile with the item lines',
+    });
+    repository.findHistory.mockResolvedValue({
+      duplicate: {
+        id: 'receipt-1',
+        created_at: new Date('2026-08-12T10:00:00Z'),
+      },
+      spreads: [],
+    });
+    repository.findById.mockResolvedValue(record('receipt-7'));
+
+    await service.parseReceipt({ raw_text: 'Fresh Grocer Downtown 4.50 EUR' });
+
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
+    expect(repository.completeWithExtraction).toHaveBeenCalledWith(
+      'receipt-7',
+      expect.anything(),
+      expect.anything(),
+      {
+        is_suspicious: true,
+        flag_reason:
+          'The total does not reconcile with the item lines. Same merchant, ' +
+          'date and total as receipt receipt-1, submitted on 2026-08-12; ' +
+          'possible duplicate submission.',
+        duplicate_of: 'receipt-1',
+      },
     );
   });
 
@@ -185,6 +263,7 @@ function record(id: string) {
     confidence_score: '0.95',
     is_suspicious: false,
     flag_reason: null,
+    duplicate_of: null,
     status: 'completed',
     created_at: new Date('2026-08-12T10:00:00Z'),
     categories: ['Food'],

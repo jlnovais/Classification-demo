@@ -29,12 +29,13 @@ Gerar vetores a partir da descrição ou notas dos recibos e guardá-los numa ba
 - **Conceito de IA:** Embeddings e retrieval semântico (RAG).
 - **O que aprendes:** Gerar e armazenar embeddings, escolher a métrica de distância e indexação adequadas, e traduzir uma pergunta em linguagem natural numa pesquisa vetorial combinada com filtros SQL (datas, categorias, valores).
 
-## 5. Deteção de Duplicados e Fraude
+## 5. Deteção de Duplicados e Fraude — ✅ feito
 
 Cruzamento de dados históricos para detetar submissões duplicadas (mesmo comerciante, data e valor exatos) e identificar valores anómalos (ex: um bife a 450€ num talho) através de regras combinadas com análise contextual da IA.
 
 - **Conceito de IA:** Matching determinístico + análise contextual do modelo.
 - **O que aprendes:** Separar o que é regra (chaves de deduplicação, limiares por categoria) do que exige julgamento do modelo, e desenhar uma resposta que justifique cada suspeita em vez de apenas a sinalizar.
+- **Como ficou implementado:** duas consultas SQL em `ReceiptsRepository.findHistory`, corridas entre a extração e a persistência, e avaliadas por funções puras em `src/receipts/history-anomalies.ts`. (1) **Duplicados:** chave exata — comerciante (aparado e sem distinção de maiúsculas), data, total e moeda — sobre as linhas `completed`; o id do recibo anterior fica na nova coluna `duplicate_of` e a frase diz "possible duplicate", não veredicto, porque duas compras legítimas podem partilhar a chave. Chave incompleta → nenhuma pesquisa. (2) **Limiares por categoria:** em vez de uma tabela fixa, o limiar vem do histórico — percentil 90 dos totais por categoria, com mínimo de `MIN_CATEGORY_SAMPLE` recibos anteriores e comparação contra a categoria mais cara do recibo, para que um supermercado com um portátil não seja julgado pelo preço da comida. O julgamento contextual continua no modelo (#1) e os veredictos unem-se em `unionAnomalies`, reaproveitado do teste de fim de semana. Índices para as duas consultas ficaram no bloco `ALTER`/`CREATE INDEX` de `DatabaseService.migrate()`.
 
 ## 6. Geração de Insights e Resumos em Texto
 
