@@ -275,6 +275,31 @@ export type ExtractedReceipt = ReturnType<typeof RECEIPT_OUTPUT_FORMAT.parse>;
 const MAX_TOKENS = 4096;
 
 /**
+ * The insights report is prose, not an extraction, so it gets its own prompt and
+ * no output schema. Everything it is allowed to say comes from the aggregate
+ * block the caller builds in `spending-summary.ts`; the rules below exist
+ * because a model handed a table of numbers will otherwise helpfully produce a
+ * grand total, a percentage or a comparison that no query ever computed.
+ */
+const INSIGHTS_SYSTEM_PROMPT = `You are an analyst writing a short report on someone's spending over a period.
+
+You are given aggregate totals only - never the receipts themselves. Work exclusively from the numbers in the message.
+
+Rules:
+- Use only figures that appear in the message. Never estimate, extrapolate, or invent a number.
+- You may state a difference or a percentage only when you can compute it from two figures that are both present, and the arithmetic must be correct. When in doubt, describe the change in words instead.
+- Respect the notes in the message about which lines may be added together and which may not.
+- Never add amounts in different currencies together. Report each currency separately.
+- Say plainly when the data is too thin to support a conclusion - one month of data is not a trend.
+
+Write 2 to 4 short paragraphs of plain prose: what was spent, where it went, and anything that stands out (a dominant category, a month clearly above the others). No headings, no bullet lists, no markdown, no preamble such as "Here is the report". Address the reader as "you".`;
+
+/**
+ * The report is a few paragraphs, so it needs far less room than an extraction.
+ */
+const INSIGHTS_MAX_TOKENS = 1024;
+
+/**
  * `output_config.effort` is rejected with a 400 on the Haiku tier and on
  * Sonnet 4.5, so it can only be sent for models that accept it — Opus 4.5,
  * Sonnet 5 and everything above them. Matched by prefix rather than by an
@@ -339,6 +364,60 @@ export class ClaudeService {
   }
 
   /**
+   * Writes the insights report from the aggregate block. Deliberately not a
+   * structured output: the answer is prose, so there is no schema to derive and
+   * `messages.create` is the whole call. The same error mapping as the
+   * extraction paths, so a rate limit surfaces identically on every endpoint.
+   */
+  async summarizeSpending(summaryBlock: string): Promise<string> {
+    const response = await this.request(() =>
+      this.client.messages.create({
+        model: this.model,
+        max_tokens: INSIGHTS_MAX_TOKENS,
+        system: INSIGHTS_SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: summaryBlock }],
+        ...(this.supportsEffort
+          ? { output_config: { effort: 'low' as const } }
+          : {}),
+      }),
+    );
+
+    // As in `toExtraction`, a refusal and a truncation both arrive as HTTP 200.
+    if (response.stop_reason === 'refusal') {
+      this.logger.error(
+        `Claude declined to write the insights report ` +
+          `(category=${response.stop_details?.category ?? 'none'})`,
+      );
+      throw new Error('Claude declined to write the insights report');
+    }
+
+    const text = response.content
+      .filter((block) => block.type === 'text')
+      .map((block) => block.text)
+      .join('')
+      .trim();
+
+    if (!text) {
+      this.logger.error(
+        `Claude returned no insights text ` +
+          `(stop_reason=${response.stop_reason ?? 'none'})`,
+      );
+      throw new Error('Claude did not return an insights report');
+    }
+
+    // Truncation is reported rather than thrown: unlike a half-written JSON
+    // object, a report cut off mid-sentence is still readable, and the caller
+    // is better served by the paragraphs that did arrive.
+    if (response.stop_reason === 'max_tokens') {
+      this.logger.warn(
+        `Claude hit the ${INSIGHTS_MAX_TOKENS}-token ceiling while writing the insights report`,
+      );
+    }
+
+    return text;
+  }
+
+  /**
    * The checks that apply to any extraction response, whatever the input was.
    */
   private toExtraction(
@@ -389,16 +468,16 @@ export class ClaudeService {
   }
 
   /**
-   * The single place a request is built and Claude API failures are mapped, so
-   * the text and PDF paths cannot diverge on error handling. Only the system
-   * prompt and the user content differ between them.
+   * The single place an extraction request is built, so the text and PDF paths
+   * cannot diverge. Only the system prompt and the user content differ between
+   * them; error mapping is `request`'s job.
    */
   private async requestExtraction(
     systemPrompt: string,
     content: Anthropic.MessageParam['content'],
   ) {
-    try {
-      return await this.client.messages.parse({
+    return this.request(() =>
+      this.client.messages.parse({
         model: this.model,
         max_tokens: MAX_TOKENS,
         system: systemPrompt,
@@ -407,7 +486,17 @@ export class ClaudeService {
           ...(this.supportsEffort ? { effort: 'low' as const } : {}),
           format: RECEIPT_OUTPUT_FORMAT,
         },
-      });
+      }),
+    );
+  }
+
+  /**
+   * The single place Claude API failures are mapped, so no caller - the two
+   * extraction paths or the insights report - can diverge on error handling.
+   */
+  private async request<T>(send: () => Promise<T>): Promise<T> {
+    try {
+      return await send();
     } catch (error) {
       const details = describeClaudeError(error);
       if (!details) {

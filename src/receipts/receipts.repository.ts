@@ -7,6 +7,7 @@ import {
   ReceiptHistory,
   ReceiptVerdict,
 } from './history-anomalies';
+import { CategoryTotal, MonthTotal, SpendingSummary } from './spending-summary';
 
 export interface ReceiptRecord {
   id: string;
@@ -222,6 +223,93 @@ export class ReceiptsRepository {
       category: row.category,
       sample_size: row.sample_size,
       p90: Number(row.p90),
+    }));
+  }
+
+  /**
+   * The aggregates behind `GET /api/insights`: what was spent per category and
+   * per month over a date range. Aggregating here rather than handing the model
+   * a pile of receipts is the point of the endpoint - the model writes about
+   * numbers SQL already computed, so it has nothing to total up wrongly.
+   *
+   * Both queries group by currency as well, so a EUR total is never added to a
+   * USD one. Undated receipts are excluded: they cannot be placed in the range.
+   */
+  async spendingSummary(from: string, to: string): Promise<SpendingSummary> {
+    const [categories, months] = await Promise.all([
+      this.categoryTotals(from, to),
+      this.monthTotals(from, to),
+    ]);
+
+    return { from, to, categories, months };
+  }
+
+  /**
+   * Spend per category. A receipt with two categories contributes its full
+   * total to both rows, so these totals deliberately overlap - `renderSummary`
+   * tells the model as much, and the per-month rows are what add up.
+   */
+  private async categoryTotals(
+    from: string,
+    to: string,
+  ): Promise<CategoryTotal[]> {
+    const result = await this.db.pool.query<{
+      category: string;
+      currency: string | null;
+      receipts: number;
+      total: string | number;
+    }>(
+      `SELECT
+        c.name AS category,
+        r.currency,
+        count(*)::int AS receipts,
+        sum(r.total_amount) AS total
+      FROM receipts r
+      JOIN receipt_categories rc ON rc.receipt_id = r.id
+      JOIN categories c ON c.id = rc.category_id
+      WHERE r.status = 'completed'
+        AND r.total_amount IS NOT NULL
+        AND r.receipt_date BETWEEN $1::date AND $2::date
+      GROUP BY c.name, r.currency
+      ORDER BY sum(r.total_amount) DESC`,
+      [from, to],
+    );
+
+    return result.rows.map((row) => ({
+      category: row.category,
+      currency: row.currency,
+      receipts: row.receipts,
+      total: Number(row.total),
+    }));
+  }
+
+  /** Spend per calendar month, counting each receipt exactly once. */
+  private async monthTotals(from: string, to: string): Promise<MonthTotal[]> {
+    const result = await this.db.pool.query<{
+      month: string;
+      currency: string | null;
+      receipts: number;
+      total: string | number;
+    }>(
+      `SELECT
+        to_char(date_trunc('month', r.receipt_date), 'YYYY-MM') AS month,
+        r.currency,
+        count(*)::int AS receipts,
+        sum(r.total_amount) AS total
+      FROM receipts r
+      WHERE r.status = 'completed'
+        AND r.total_amount IS NOT NULL
+        AND r.receipt_date BETWEEN $1::date AND $2::date
+      GROUP BY 1, r.currency
+      ORDER BY 1, r.currency`,
+      [from, to],
+    );
+
+    return result.rows.map((row) => ({
+      month: row.month,
+      currency: row.currency,
+      receipts: row.receipts,
+      total: Number(row.total),
     }));
   }
 
