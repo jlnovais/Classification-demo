@@ -19,6 +19,7 @@ describe('ReceiptsService', () => {
             pdfSystemPrompt: 'pdf-system-prompt',
             extractReceipt: jest.fn(),
             extractReceiptFromPdf: jest.fn(),
+            summarizeSpending: jest.fn(),
           },
         },
         {
@@ -34,6 +35,7 @@ describe('ReceiptsService', () => {
             findHistory: jest
               .fn()
               .mockResolvedValue({ duplicate: null, spreads: [] }),
+            spendingSummary: jest.fn(),
           },
         },
       ],
@@ -226,6 +228,60 @@ describe('ReceiptsService', () => {
     ).rejects.toThrow('pdf boom');
     // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
     expect(repository.markFailed).toHaveBeenCalledWith('receipt-4');
+  });
+
+  it('writes the report from the aggregates and returns both', async () => {
+    repository.spendingSummary.mockResolvedValue({
+      from: '2026-01-01',
+      to: '2026-03-31',
+      months: [
+        { month: '2026-01', currency: 'EUR', receipts: 9, total: 133.2 },
+      ],
+      categories: [
+        { category: 'Food', currency: 'EUR', receipts: 14, total: 210.4 },
+      ],
+    });
+    claude.summarizeSpending.mockResolvedValue('You spent 133.20 EUR.');
+
+    const result = await service.insights({
+      from: '2026-01-01',
+      to: '2026-03-31',
+    });
+
+    // The model is handed the rendered aggregates, never the receipts.
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
+    expect(claude.summarizeSpending).toHaveBeenCalledWith(
+      expect.stringContaining('- 2026-01: 133.20 EUR over 9 receipts'),
+    );
+    expect(result.summary).toBe('You spent 133.20 EUR.');
+    expect(result.months).toHaveLength(1);
+  });
+
+  it('answers an empty period without spending a token', async () => {
+    repository.spendingSummary.mockResolvedValue({
+      from: '2026-01-01',
+      to: '2026-03-31',
+      months: [],
+      categories: [],
+    });
+
+    const result = await service.insights({
+      from: '2026-01-01',
+      to: '2026-03-31',
+    });
+
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
+    expect(claude.summarizeSpending).not.toHaveBeenCalled();
+    expect(result.summary).toContain('nothing to report');
+  });
+
+  it('rejects a reversed period before querying anything', async () => {
+    await expect(
+      service.insights({ from: '2026-03-31', to: '2026-01-01' }),
+    ).rejects.toThrow('"from" must not be later than "to"');
+
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
+    expect(repository.spendingSummary).not.toHaveBeenCalled();
   });
 });
 

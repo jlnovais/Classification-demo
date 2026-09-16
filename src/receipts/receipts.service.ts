@@ -1,9 +1,16 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { ClaudeService, ExtractedReceipt } from '../claude/claude.service';
+import { InsightsQueryDto } from './dto/insights-query.dto';
+import { InsightsResponseDto } from './dto/insights-response.dto';
 import { ParsedReceiptResponseDto } from './dto/parsed-receipt-response.dto';
 import { ParseReceiptDto } from './dto/parse-receipt.dto';
 import { assessHistory } from './history-anomalies';
 import { ReceiptRecord, ReceiptsRepository } from './receipts.repository';
+import { isEmpty, renderSummary } from './spending-summary';
 
 @Injectable()
 export class ReceiptsService {
@@ -42,6 +49,29 @@ export class ReceiptsService {
     return this.extractInto(receiptId, () =>
       this.claude.extractReceiptFromPdf(pdfBase64),
     );
+  }
+
+  /**
+   * The insights report. The model never sees a receipt here - SQL aggregates
+   * the period first and the model writes about the totals, which is what keeps
+   * it from inventing figures it would otherwise have to add up itself.
+   */
+  async insights(query: InsightsQueryDto): Promise<InsightsResponseDto> {
+    const from = isoDay(query.from);
+    const to = isoDay(query.to);
+    if (from > to) {
+      throw new BadRequestException('"from" must not be later than "to"');
+    }
+
+    const summary = await this.repository.spendingSummary(from, to);
+
+    // An empty period is answered without an API call: there is nothing for the
+    // model to write about, and asking it anyway spends tokens to be told so.
+    const report = isEmpty(summary)
+      ? 'No completed receipts fall in this period, so there is nothing to report on.'
+      : await this.claude.summarizeSpending(renderSummary(summary));
+
+    return { ...summary, summary: report };
   }
 
   /**
@@ -108,4 +138,13 @@ export class ReceiptsService {
       created_at: record.created_at,
     };
   }
+}
+
+/**
+ * `IsDateString` also accepts a full timestamp, so the date part is taken
+ * explicitly rather than passed on: the queries compare against `::date`, and a
+ * time component would otherwise reach the report's heading unchanged.
+ */
+function isoDay(date: string): string {
+  return date.slice(0, 10);
 }

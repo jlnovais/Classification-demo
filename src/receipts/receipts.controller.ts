@@ -1,7 +1,9 @@
 import {
   Body,
   Controller,
+  Get,
   Post,
+  Query,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
@@ -13,6 +15,8 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { InsightsQueryDto } from './dto/insights-query.dto';
+import { InsightsResponseDto } from './dto/insights-response.dto';
 import { ParsedReceiptResponseDto } from './dto/parsed-receipt-response.dto';
 import { ParseReceiptPdfDto } from './dto/parse-receipt-pdf.dto';
 import { ParseReceiptDto } from './dto/parse-receipt.dto';
@@ -98,5 +102,40 @@ export class ReceiptsController {
     @UploadedFile() file?: Express.Multer.File,
   ): Promise<ParsedReceiptResponseDto> {
     return this.receiptsService.parseReceiptPdf(validatePdfUpload(file));
+  }
+
+  @Get('insights')
+  @ApiOperation({
+    summary: 'Write a short report on spending over a period.',
+    description:
+      'Aggregates the completed receipts dated inside the period and has Claude write about the totals. ' +
+      'The model is given the aggregates only, never the receipts, and the same aggregates are returned ' +
+      'alongside the report so every figure in it can be checked.',
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      'The report, plus the aggregates it was written from. A period with no completed receipts returns a fixed sentence and costs no tokens.',
+    type: InsightsResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description:
+      'Validation error: a missing or malformed date, or "from" later than "to".',
+  })
+  @ApiResponse({
+    status: 429,
+    description:
+      'The Claude API rate limit was reached. The response body carries the upstream details.',
+  })
+  @ApiResponse({
+    status: 503,
+    description:
+      'The Claude API is overloaded or unavailable. Safe to retry; the response body carries the upstream details.',
+  })
+  async insights(
+    @Query() query: InsightsQueryDto,
+  ): Promise<InsightsResponseDto> {
+    return this.receiptsService.insights(query);
   }
 }

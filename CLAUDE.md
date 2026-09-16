@@ -22,7 +22,7 @@ Setup: copy `.env.template` to `.env`. `POSTGRES_HOST`, `POSTGRES_USER`, `POSTGR
 
 ## Architecture
 
-Nest app with three modules under `src/`: `database` (raw `pg`), `claude` (the model call), `receipts` (HTTP + persistence). Two endpoints, `POST /api/parse-receipt` (JSON `raw_text`) and `POST /api/parse-receipt-pdf` (multipart `file`), both returning the same `ParsedReceiptResponseDto`. Swagger at `/docs`.
+Nest app with three modules under `src/`: `database` (raw `pg`), `claude` (the model call), `receipts` (HTTP + persistence). Three endpoints: `POST /api/parse-receipt` (JSON `raw_text`) and `POST /api/parse-receipt-pdf` (multipart `file`), both returning the same `ParsedReceiptResponseDto`, plus `GET /api/insights` (see below). Swagger at `/docs`.
 
 Request flow for both endpoints: `ReceiptsRepository` inserts a `pending` row (recording the exact system prompt in `prompt_used`) → `ClaudeService` extracts → the history checks run → the row is completed and categories linked, or marked `failed`. `ReceiptsService.extractInto` is the shared tail of both paths, so the two endpoints cannot diverge on persistence or failure bookkeeping.
 
@@ -41,6 +41,14 @@ Three sources feed one verdict (`is_suspicious`, `flag_reason`, `duplicate_of`),
 The history checks are pure functions taking query results, not the pool, so the thresholds are testable without PostgreSQL. `ReceiptsRepository.completeWithExtraction` writes the *merged* verdict, passed as its fourth argument — not `extracted.is_suspicious`, which is only the model's half. An incomplete deduplication key (no merchant, date or total) means no lookup at all, otherwise every dateless receipt from one shop would match the last.
 
 The eval harness cannot cover these: it builds a Nest context with `ClaudeModule` only, so there is no history to cross-check. They are covered by `test/receipts/history-anomalies.spec.ts` instead.
+
+### Insights
+
+`GET /api/insights?from=&to=` writes a prose report on a period. The rule is that **SQL aggregates first and the model only writes about the totals** - it never sees a receipt, so it has nothing to add up wrongly. `ReceiptsRepository.spendingSummary` runs two grouped queries (per category, per month), both grouped by currency as well so a EUR total is never added to a USD one, and `renderSummary` in `src/receipts/spending-summary.ts` turns them into the text block.
+
+Two facts are stated inside that block rather than in the system prompt, because they are properties of those numbers rather than of the task: month totals count each receipt once and may be summed; category totals overlap (a two-category receipt counts in full under both) and must not be. Drop either line and the model reports a grand total no query produced. The prompt itself carries the general rules - no invented or extrapolated figures, no cross-currency addition.
+
+The response returns the aggregates alongside the prose so any sentence can be checked against what the model saw. An empty period short-circuits before the API call. `ClaudeService.summarizeSpending` is a plain `messages.create` with no output schema (the answer is prose), sharing the error mapping through `ClaudeService.request`; truncation is logged rather than thrown, since a report cut short is still readable. The pure rendering is covered by `test/receipts/spending-summary.spec.ts`.
 
 **Env validation** is hand-rolled: `src/config/validate-env.ts` is a generic factory (coerce by key list, then enforce required keys), and `src/config/env.validation.ts` is this app's key lists. `ConfigModule` runs it with `skipProcessEnv: true`, so a var not listed in `env.validation.ts` is invisible to `ConfigService` — adding an env var means adding it there.
 
