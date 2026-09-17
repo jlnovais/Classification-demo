@@ -42,20 +42,24 @@ export class ReceiptsRepository {
   }
 
   /**
-   * The PDF counterpart of `createPending`. `raw_text` stays null - the file is
-   * sent straight to Claude rather than converted to text here - so the file
-   * name and size are recorded instead, which is what makes a failed row
-   * traceable back to an upload.
+   * The file counterpart of `createPending`, shared by the PDF and photo
+   * endpoints. `raw_text` stays null - the file is sent straight to Claude
+   * rather than converted to text here - so the file name and size are recorded
+   * instead, which is what makes a failed row traceable back to an upload.
+   *
+   * `sourceType` is a parameter rather than two near-identical inserts. It
+   * needed no migration: the column already exists and 'image' fits its width.
    */
-  async createPendingPdf(
+  async createPendingUpload(
+    sourceType: 'pdf' | 'image',
     filename: string,
     sizeBytes: number,
     promptUsed: string,
   ): Promise<string> {
     const result = await this.db.pool.query<{ id: string }>(
       `INSERT INTO receipts (prompt_used, status, source_type, source_filename, source_bytes)
-       VALUES ($1, 'pending', 'pdf', $2, $3) RETURNING id`,
-      [promptUsed, filename, sizeBytes],
+       VALUES ($1, 'pending', $2, $3, $4) RETURNING id`,
+      [promptUsed, sourceType, filename, sizeBytes],
     );
     return result.rows[0].id;
   }

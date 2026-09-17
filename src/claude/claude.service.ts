@@ -84,6 +84,8 @@ const CATEGORY_BLOCK = CATEGORIES.map(
 const PROMPT_INTRO = {
   text: 'Given the raw text of a receipt, invoice, or expense note, extract structured information from it.',
   pdf: 'Given a receipt, invoice, or expense note as a PDF document, read the document and extract structured information from it. The pages may be scanned or photographed rather than digitally generated; read what is legible and leave a field null rather than guessing at it.',
+  image:
+    'Given a photograph of a receipt, invoice, or expense note, read the image and extract structured information from it. It is a photo of paper taken with a phone, so expect it to be crumpled, creased, out of focus, badly lit, shot at an angle, or cut short where the till roll ended. Read what is legible and leave a field null rather than guessing at it - a missing field is recoverable, an invented one is not.',
 } as const;
 
 export type ReceiptSource = keyof typeof PROMPT_INTRO;
@@ -126,7 +128,7 @@ Receipts may be written in Portuguese, English, or a mix of both. Work out what 
 Only use information present in the {SOURCE} or safely inferable from it. Do not fabricate data.`;
 
 /** What to call the input in the closing sentence of `PROMPT_BODY`. */
-const SOURCE_NOUN = { text: 'text', pdf: 'document' } as const;
+const SOURCE_NOUN = { text: 'text', pdf: 'document', image: 'image' } as const;
 
 function buildSystemPrompt(source: ReceiptSource): string {
   return `You are an expert financial data extraction assistant. ${PROMPT_INTRO[source]}
@@ -144,6 +146,7 @@ ${PROMPT_BODY.replace('{SOURCE}', SOURCE_NOUN[source])}`;
  */
 const SYSTEM_PROMPT = buildSystemPrompt('text');
 const PDF_SYSTEM_PROMPT = buildSystemPrompt('pdf');
+const IMAGE_SYSTEM_PROMPT = buildSystemPrompt('image');
 
 /**
  * The text block that accompanies the document block. The PDF is the actual
@@ -152,6 +155,17 @@ const PDF_SYSTEM_PROMPT = buildSystemPrompt('pdf');
  */
 const PDF_USER_INSTRUCTION =
   'Extract the structured receipt data from the attached PDF document.';
+
+/** The image counterpart of `PDF_USER_INSTRUCTION`, and for the same reason. */
+const IMAGE_USER_INSTRUCTION =
+  'Extract the structured receipt data from the attached photograph.';
+
+/**
+ * The image media types the API accepts, taken from the SDK rather than written
+ * out here: this type is what `upload.validation.ts` has to produce, so it
+ * should come from the one place that actually defines it.
+ */
+export type ImageMediaType = Anthropic.Base64ImageSource['media_type'];
 
 // `as const` throughout: the schema is the single source of truth for
 // `ExtractedReceipt`, and deriving a type from it needs the literal types
@@ -335,6 +349,10 @@ export class ClaudeService {
     return PDF_SYSTEM_PROMPT;
   }
 
+  get imageSystemPrompt(): string {
+    return IMAGE_SYSTEM_PROMPT;
+  }
+
   async extractReceipt(rawText: string): Promise<ExtractedReceipt> {
     return this.toExtraction(
       await this.requestExtraction(SYSTEM_PROMPT, rawText),
@@ -359,6 +377,31 @@ export class ClaudeService {
           },
         },
         { type: 'text', text: PDF_USER_INSTRUCTION },
+      ]),
+    );
+  }
+
+  /**
+   * The photo path. No OCR library is involved and none is wanted: the image
+   * goes to Claude as an `image` block and the extraction is the same one the
+   * other two endpoints get, so a phone photo costs no extra code - only
+   * accuracy, which is what the eval harness is there to measure.
+   *
+   * `mediaType` is sniffed from the file's own bytes by `validateImageUpload`,
+   * never taken from the upload's declared content type: it is forwarded to the
+   * API verbatim, and a wrong one comes back as an opaque upstream 400.
+   */
+  async extractReceiptFromImage(
+    imageBase64: string,
+    mediaType: ImageMediaType,
+  ): Promise<ExtractedReceipt> {
+    return this.toExtraction(
+      await this.requestExtraction(IMAGE_SYSTEM_PROMPT, [
+        {
+          type: 'image',
+          source: { type: 'base64', media_type: mediaType, data: imageBase64 },
+        },
+        { type: 'text', text: IMAGE_USER_INSTRUCTION },
       ]),
     );
   }

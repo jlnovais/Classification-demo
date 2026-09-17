@@ -17,8 +17,10 @@ describe('ReceiptsService', () => {
           useValue: {
             systemPrompt: 'system-prompt',
             pdfSystemPrompt: 'pdf-system-prompt',
+            imageSystemPrompt: 'image-system-prompt',
             extractReceipt: jest.fn(),
             extractReceiptFromPdf: jest.fn(),
+            extractReceiptFromImage: jest.fn(),
             summarizeSpending: jest.fn(),
           },
         },
@@ -26,7 +28,7 @@ describe('ReceiptsService', () => {
           provide: ReceiptsRepository,
           useValue: {
             createPending: jest.fn(),
-            createPendingPdf: jest.fn(),
+            createPendingUpload: jest.fn(),
             completeWithExtraction: jest.fn(),
             markFailed: jest.fn(),
             findById: jest.fn(),
@@ -189,7 +191,7 @@ describe('ReceiptsService', () => {
   });
 
   it('sends an uploaded PDF to Claude and returns the same response shape', async () => {
-    repository.createPendingPdf.mockResolvedValue('receipt-3');
+    repository.createPendingUpload.mockResolvedValue('receipt-3');
     claude.extractReceiptFromPdf.mockResolvedValue(extraction());
     repository.findById.mockResolvedValue(record('receipt-3'));
 
@@ -200,7 +202,8 @@ describe('ReceiptsService', () => {
     // The file name and size are recorded so a failed row stays traceable, and
     // the PDF prompt is the one stored against it.
     // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
-    expect(repository.createPendingPdf).toHaveBeenCalledWith(
+    expect(repository.createPendingUpload).toHaveBeenCalledWith(
+      'pdf',
       'grocer.pdf',
       Buffer.byteLength('%PDF-1.7 fake receipt'),
       'pdf-system-prompt',
@@ -220,7 +223,7 @@ describe('ReceiptsService', () => {
   });
 
   it('marks the receipt as failed when PDF extraction throws', async () => {
-    repository.createPendingPdf.mockResolvedValue('receipt-4');
+    repository.createPendingUpload.mockResolvedValue('receipt-4');
     claude.extractReceiptFromPdf.mockRejectedValue(new Error('pdf boom'));
 
     await expect(
@@ -228,6 +231,52 @@ describe('ReceiptsService', () => {
     ).rejects.toThrow('pdf boom');
     // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
     expect(repository.markFailed).toHaveBeenCalledWith('receipt-4');
+  });
+
+  it('sends an uploaded photo to Claude with its media type', async () => {
+    repository.createPendingUpload.mockResolvedValue('receipt-8');
+    claude.extractReceiptFromImage.mockResolvedValue(extraction());
+    repository.findById.mockResolvedValue(record('receipt-8'));
+
+    const result = await service.parseReceiptImage(
+      upload('grocer.jpg', 'fake jpeg bytes', 'image/jpeg'),
+      'image/jpeg',
+    );
+
+    // The row records the source as an image and stores the image prompt, so a
+    // failed photo is distinguishable from a failed PDF after the fact.
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
+    expect(repository.createPendingUpload).toHaveBeenCalledWith(
+      'image',
+      'grocer.jpg',
+      Buffer.byteLength('fake jpeg bytes'),
+      'image-system-prompt',
+    );
+    // The media type travels with the image block; the buffer is base64.
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
+    expect(claude.extractReceiptFromImage).toHaveBeenCalledWith(
+      Buffer.from('fake jpeg bytes').toString('base64'),
+      'image/jpeg',
+    );
+    // Everything after the extraction is the shared tail, so a photo comes back
+    // in exactly the shape the other two endpoints return.
+    expect(result.total_amount).toBe(4.5);
+    expect(result.categories).toEqual(['Food']);
+    expect(result.is_suspicious).toBe(false);
+  });
+
+  it('marks the receipt as failed when photo extraction throws', async () => {
+    repository.createPendingUpload.mockResolvedValue('receipt-9');
+    claude.extractReceiptFromImage.mockRejectedValue(new Error('photo boom'));
+
+    await expect(
+      service.parseReceiptImage(
+        upload('blurred.jpg', 'unreadable', 'image/jpeg'),
+        'image/jpeg',
+      ),
+    ).rejects.toThrow('photo boom');
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
+    expect(repository.markFailed).toHaveBeenCalledWith('receipt-9');
   });
 
   it('writes the report from the aggregates and returns both', async () => {
@@ -330,12 +379,16 @@ function record(id: string) {
  * A multer upload carrying only the fields the service reads. Validation of the
  * upload itself happens in the controller, so it is covered separately.
  */
-function upload(originalname: string, contents: string): Express.Multer.File {
+function upload(
+  originalname: string,
+  contents: string,
+  mimetype = 'application/pdf',
+): Express.Multer.File {
   const buffer = Buffer.from(contents);
   return {
     originalname,
     buffer,
     size: buffer.byteLength,
-    mimetype: 'application/pdf',
+    mimetype,
   } as Express.Multer.File;
 }
