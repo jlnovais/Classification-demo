@@ -3,7 +3,11 @@ import {
   Injectable,
   InternalServerErrorException,
 } from '@nestjs/common';
-import { ClaudeService, ExtractedReceipt } from '../claude/claude.service';
+import {
+  ClaudeService,
+  ExtractedReceipt,
+  ImageMediaType,
+} from '../claude/claude.service';
 import { InsightsQueryDto } from './dto/insights-query.dto';
 import { InsightsResponseDto } from './dto/insights-response.dto';
 import { ParsedReceiptResponseDto } from './dto/parsed-receipt-response.dto';
@@ -39,7 +43,8 @@ export class ReceiptsService {
   async parseReceiptPdf(
     file: Express.Multer.File,
   ): Promise<ParsedReceiptResponseDto> {
-    const receiptId = await this.repository.createPendingPdf(
+    const receiptId = await this.repository.createPendingUpload(
+      'pdf',
       file.originalname,
       file.size,
       this.claude.pdfSystemPrompt,
@@ -48,6 +53,28 @@ export class ReceiptsService {
     const pdfBase64 = file.buffer.toString('base64');
     return this.extractInto(receiptId, () =>
       this.claude.extractReceiptFromPdf(pdfBase64),
+    );
+  }
+
+  /**
+   * The photo counterpart. Structurally identical to the PDF path - the only
+   * difference that reaches this layer is the media type, which the validator
+   * read out of the file's own bytes and which travels with the image block.
+   */
+  async parseReceiptImage(
+    file: Express.Multer.File,
+    mediaType: ImageMediaType,
+  ): Promise<ParsedReceiptResponseDto> {
+    const receiptId = await this.repository.createPendingUpload(
+      'image',
+      file.originalname,
+      file.size,
+      this.claude.imageSystemPrompt,
+    );
+
+    const imageBase64 = file.buffer.toString('base64');
+    return this.extractInto(receiptId, () =>
+      this.claude.extractReceiptFromImage(imageBase64, mediaType),
     );
   }
 

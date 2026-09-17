@@ -18,9 +18,14 @@ import {
 import { InsightsQueryDto } from './dto/insights-query.dto';
 import { InsightsResponseDto } from './dto/insights-response.dto';
 import { ParsedReceiptResponseDto } from './dto/parsed-receipt-response.dto';
+import { ParseReceiptImageDto } from './dto/parse-receipt-image.dto';
 import { ParseReceiptPdfDto } from './dto/parse-receipt-pdf.dto';
 import { ParseReceiptDto } from './dto/parse-receipt.dto';
-import { MAX_PDF_BYTES, validatePdfUpload } from './pdf-file.validation';
+import {
+  MAX_UPLOAD_BYTES,
+  validateImageUpload,
+  validatePdfUpload,
+} from './upload.validation';
 import { ReceiptsService } from './receipts.service';
 
 @ApiTags('receipts')
@@ -63,7 +68,7 @@ export class ReceiptsController {
   // is buffered into memory before any validator gets a say. `validatePdfUpload`
   // re-checks the size, because multer truncates at the limit instead of failing.
   @UseInterceptors(
-    FileInterceptor('file', { limits: { fileSize: MAX_PDF_BYTES } }),
+    FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_BYTES } }),
   )
   @ApiConsumes('multipart/form-data')
   @ApiBody({ type: ParseReceiptPdfDto })
@@ -102,6 +107,54 @@ export class ReceiptsController {
     @UploadedFile() file?: Express.Multer.File,
   ): Promise<ParsedReceiptResponseDto> {
     return this.receiptsService.parseReceiptPdf(validatePdfUpload(file));
+  }
+
+  @Post('parse-receipt-image')
+  // Same two-layer defence as the PDF endpoint: multer caps what is buffered,
+  // and `validateImageUpload` re-checks the size and reads the real format out
+  // of the bytes.
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_BYTES } }),
+  )
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ type: ParseReceiptImageDto })
+  @ApiOperation({
+    summary:
+      'Extract structured data from a photograph of a receipt, invoice, or expense note.',
+    description:
+      'Same extraction and categorization as /api/parse-receipt, but the input is a photo taken with a phone. ' +
+      'The image is sent to Claude as an image block - there is no OCR step - so a crumpled, blurred or skewed ' +
+      'photo is read directly. Accepts JPEG, PNG, WebP and GIF.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'The receipt was parsed and stored successfully.',
+    type: ParsedReceiptResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description:
+      'No file was uploaded, or the upload is not a supported image (wrong content type, or contents matching no known image format).',
+  })
+  @ApiResponse({
+    status: 413,
+    description: 'The image is larger than the 10 MB limit.',
+  })
+  @ApiResponse({
+    status: 429,
+    description:
+      'The Claude API rate limit was reached. The response body carries the upstream details.',
+  })
+  @ApiResponse({
+    status: 503,
+    description:
+      'The Claude API is overloaded or unavailable. Safe to retry; the response body carries the upstream details.',
+  })
+  async parseReceiptImage(
+    @UploadedFile() file?: Express.Multer.File,
+  ): Promise<ParsedReceiptResponseDto> {
+    const { file: image, mediaType } = validateImageUpload(file);
+    return this.receiptsService.parseReceiptImage(image, mediaType);
   }
 
   @Get('insights')

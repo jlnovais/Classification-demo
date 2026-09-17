@@ -22,9 +22,9 @@ Setup: copy `.env.template` to `.env`. `POSTGRES_HOST`, `POSTGRES_USER`, `POSTGR
 
 ## Architecture
 
-Nest app with three modules under `src/`: `database` (raw `pg`), `claude` (the model call), `receipts` (HTTP + persistence). Three endpoints: `POST /api/parse-receipt` (JSON `raw_text`) and `POST /api/parse-receipt-pdf` (multipart `file`), both returning the same `ParsedReceiptResponseDto`, plus `GET /api/insights` (see below). Swagger at `/docs`.
+Nest app with three modules under `src/`: `database` (raw `pg`), `claude` (the model call), `receipts` (HTTP + persistence). Four endpoints: `POST /api/parse-receipt` (JSON `raw_text`), `POST /api/parse-receipt-pdf` (multipart `file`) and `POST /api/parse-receipt-image` (multipart `file`, a phone photo), all three returning the same `ParsedReceiptResponseDto`, plus `GET /api/insights` (see below). Swagger at `/docs`.
 
-Request flow for both endpoints: `ReceiptsRepository` inserts a `pending` row (recording the exact system prompt in `prompt_used`) → `ClaudeService` extracts → the history checks run → the row is completed and categories linked, or marked `failed`. `ReceiptsService.extractInto` is the shared tail of both paths, so the two endpoints cannot diverge on persistence or failure bookkeeping.
+Request flow for all three extraction endpoints: `ReceiptsRepository` inserts a `pending` row (recording the exact system prompt in `prompt_used`) → `ClaudeService` extracts → the history checks run → the row is completed and categories linked, or marked `failed`. `ReceiptsService.extractInto` is the shared tail of every path, so the endpoints cannot diverge on persistence or failure bookkeeping.
 
 **No ORM and no migration tool.** `DatabaseService.migrate()` runs raw SQL on `onModuleInit`: a `CREATE TABLE IF NOT EXISTS` block for the original schema, then a second block of idempotent `ALTER`s for everything added since. `CREATE TABLE IF NOT EXISTS` is a no-op on an existing database, so **any new column or constraint must go in the ALTER block as an idempotent statement**, not into the CREATE block. All queries are parameterized SQL in `receipts.repository.ts`.
 
@@ -60,19 +60,31 @@ The interesting file. Things to preserve when editing:
 - `RECEIPT_JSON_SCHEMA` is `as const` on purpose: `ExtractedReceipt` is *derived* from it via `jsonSchemaOutputFormat(...).parse`. Never declare that type by hand.
 - Schema property order is generation order. `line_items` and `category_evidence` sit before `categories` so the model reasons over items first; `mergeCategories` then unions item categories into the receipt categories, ordered by the taxonomy for stable output.
 - The anomaly trio (`anomaly_evidence`, `is_suspicious`, `flag_reason`) sits **last** in the schema for the same reason: the model judges an extraction it can already see, with the evidence sentence generated before the boolean. Only semantic checks live in the prompt — the day-of-week check is computed from the extracted date in `src/claude/anomaly.ts` and unioned into the verdict in `toExtraction`, because models get calendar arithmetic wrong. The prompt therefore tells the model explicitly *not* to consider the day of the week; drop that line and weekends get flagged twice.
-- The two prompts are composed from a shared `PROMPT_BODY` plus a per-source `PROMPT_INTRO`. Keep them composed that way when editing shared prompt text. The text prompt was byte-identical to the pre-PDF version until the anomaly checks were added, so eval reports and stored `prompt_used` values from before that change are not comparable with later ones.
+- The three prompts are composed from a shared `PROMPT_BODY` plus a per-source `PROMPT_INTRO` (`text`, `pdf`, `image`). Keep them composed that way when editing shared prompt text. The text prompt was byte-identical to the pre-PDF version until the anomaly checks were added, so eval reports and stored `prompt_used` values from before that change are not comparable with later ones.
 - `output_config.effort` is only sent for models that accept it — see `MODELS_WITHOUT_EFFORT`; Haiku and Sonnet 4.5 reject it with a 400.
 - Refusals and `max_tokens` truncation arrive as HTTP 200, so they are checked explicitly in `toExtraction` rather than caught as errors.
 
 `claude-error.ts` normalizes Anthropic SDK errors and maps them to our HTTP status: transient upstream trouble (429/5xx/network) → 429/502/503/504 so callers know to retry; unretryable causes (bad credentials, wrong model id, a malformed request we built) → 500, because those are this service's misconfiguration.
 
-PDF uploads are validated twice by design (`receipts.controller.ts` + `pdf-file.validation.ts`): the multer `fileSize` limit caps what is buffered, and `validatePdfUpload` re-checks size because multer *truncates* rather than failing, plus checks the `%PDF-` signature since client-supplied `mimetype` is not trustworthy. No PDF library is involved — the file goes to Claude as a `document` block.
+### File uploads
+
+Both file endpoints are validated twice by design (`receipts.controller.ts` + `upload.validation.ts`): the multer `fileSize` limit caps what is buffered, and the validator re-checks size because multer *truncates* rather than failing, plus checks the file's magic bytes since client-supplied `mimetype` is not trustworthy. `MAX_UPLOAD_BYTES` is shared — 10 MB, chosen against the API's 32 MB request cap and base64's ~⅓ inflation.
+
+No PDF or image library is involved, and none is wanted: the PDF goes to Claude as a `document` block and the photo as an `image` block. A modern model needs no separate OCR step, so accepting photographs costs no extra code — only accuracy, which is what the eval measures.
+
+`validateImageUpload` returns `{ file, mediaType }` rather than just the file, and that is the point: the media type is **derived from the magic bytes**, never taken from `file.mimetype`, because it is forwarded verbatim in the `image` block and a mislabelled upload would come back as an opaque upstream 400. `ImageMediaType` comes from the SDK (`Anthropic.Base64ImageSource['media_type']`), not from a hand-written union. `imageMediaType(buffer)` is exported as a pure function so `eval/run-eval.ts` sniffs its fixtures with the same code.
+
+The image path needed **no migration**: `raw_text` was already nullable and `source_type` is `VARCHAR(10)`, so `'image'` fits. `createPendingUpload` takes the source type as a parameter, which is what keeps the PDF and photo inserts from being two near-identical statements.
 
 ## Eval harness
 
 `eval/run-eval.ts` builds a Nest context with `ClaudeModule` only (no `DatabaseModule`, so no PostgreSQL needed) and scores `eval/receipts.eval.json` cases for per-category precision/recall/F1 and exact-set match. Any prompt or taxonomy change should be measured with a before/after report rather than eyeballed.
 
 A case may also carry `expected_suspicious`, which scores the anomaly flag in a separate section of the report. It is optional by design: a case without it is **excluded** from that metric rather than assumed `false`, so the category fixtures need no anomaly verdict invented for them. When adding a weekend case, verify the weekday of the date — the calendar check is real arithmetic, not a label.
+
+A case carries either `raw_text` or `image` (a path relative to `eval/`). An image case runs through `extractReceiptFromImage`, and when it names a `same_as` text case for the same receipt, the two are compared in the `=== Photo vs text ===` section — exact-set match and micro-F1 for each side and the delta between them. That delta is the whole point: it is what accepting photographs actually costs.
+
+An image case whose file is missing or is not a recognized image format is **skipped**, not failed: excluded from every metric and reported as a count. `eval/images/` therefore ships empty (see its README) and the eval still runs green on a fresh clone. A pair with only one side run — `--limit` takes the first N cases and the image cases sit at the end of the fixture — is excluded from the comparison and listed as incomplete. Photos cannot be synthesized: a rendered image of receipt text would measure font rasterization, not what a camera does to thermal paper, and would flatter the score.
 
 ## Tests
 

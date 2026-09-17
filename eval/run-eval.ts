@@ -6,6 +6,11 @@
  * or taxonomy change can be measured instead of guessed at. Cases carrying an
  * `expected_suspicious` label are additionally scored on the anomaly flag.
  *
+ * A case carries either `raw_text` or `image`. An image case is a photograph of
+ * a receipt, run through the photo endpoint's code path; when it also names a
+ * `same_as` text case, the two are compared head to head in the photo-vs-text
+ * section, which is the only honest way to price accepting photographs.
+ *
  *   npm run eval
  *   npm run eval -- --label before --out reports/before.json
  *   npm run eval -- --limit 5
@@ -19,11 +24,20 @@ import { HttpException, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { ClaudeModule } from '../src/claude/claude.module';
-import { ClaudeService } from '../src/claude/claude.service';
+import { ClaudeService, ImageMediaType } from '../src/claude/claude.service';
+import { imageMediaType } from '../src/receipts/upload.validation';
 
 interface EvalCase {
   id: string;
-  raw_text: string;
+  /** Exactly one of these two. `image` is a path relative to `eval/`. */
+  raw_text?: string;
+  image?: string;
+  /**
+   * For an image case, the id of the clean-text case showing the same receipt.
+   * It is what makes the photo-vs-text comparison possible; without it a photo
+   * case is still scored, just not compared.
+   */
+  same_as?: string;
   expected_categories: string[];
   /**
    * Optional on purpose: only cases labelled for the anomaly flag are scored on
@@ -35,7 +49,10 @@ interface EvalCase {
 
 interface CaseResult {
   id: string;
-  raw_text: string;
+  /** What was sent: the text itself, or the image path. */
+  input: string;
+  source: 'text' | 'image';
+  same_as?: string;
   expected: string[];
   got: string[];
   exact: boolean;
@@ -46,6 +63,12 @@ interface CaseResult {
   suspicious?: boolean;
   flag_reason?: string;
   error?: string;
+  /**
+   * An image case whose file is absent or unreadable. Excluded from every
+   * metric rather than counted as a failure: the fixture names the photo it
+   * wants, and a clone without the photos still has to run green.
+   */
+  skipped?: string;
 }
 
 /** Precision / recall over a single boolean prediction. */
@@ -136,19 +159,77 @@ async function main(): Promise<void> {
   }
 }
 
+/**
+ * Loads an image case's photo, or explains why it cannot be run. The media type
+ * comes from the file's bytes through the same function the endpoint uses, so
+ * the eval cannot disagree with production about what a file is.
+ */
+function loadImage(
+  imagePath: string,
+): { base64: string; mediaType: ImageMediaType } | string {
+  let buffer: Buffer;
+  try {
+    buffer = readFileSync(join(__dirname, imagePath));
+  } catch {
+    return `no file at eval/${imagePath}`;
+  }
+
+  const mediaType = imageMediaType(buffer);
+  if (!mediaType) return `eval/${imagePath} is not a JPEG, PNG, WebP or GIF`;
+
+  return { base64: buffer.toString('base64'), mediaType };
+}
+
 /** Retries the transient upstream failures (429/502/503/504) the service maps. */
 async function runCase(
   claude: ClaudeService,
   testCase: EvalCase,
 ): Promise<CaseResult> {
+  const source = testCase.image ? 'image' : 'text';
+  const base: Pick<CaseResult, 'id' | 'input' | 'source' | 'same_as'> = {
+    id: testCase.id,
+    input: testCase.image ?? testCase.raw_text ?? '',
+    source,
+    same_as: testCase.same_as,
+  };
+  const expected: string[] = [...testCase.expected_categories].sort();
+
+  // Resolved before the retry loop: a missing photo is not a transient failure.
+  let image: { base64: string; mediaType: ImageMediaType } | undefined;
+  if (testCase.image) {
+    const loaded = loadImage(testCase.image);
+    if (typeof loaded === 'string') {
+      return {
+        ...base,
+        expected,
+        got: [],
+        exact: false,
+        missing: expected,
+        spurious: [],
+        skipped: loaded,
+      };
+    }
+    image = loaded;
+  } else if (!testCase.raw_text) {
+    return {
+      ...base,
+      expected,
+      got: [],
+      exact: false,
+      missing: expected,
+      spurious: [],
+      skipped: 'the case carries neither raw_text nor image',
+    };
+  }
+
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      const extracted = await claude.extractReceipt(testCase.raw_text);
+      const extracted = image
+        ? await claude.extractReceiptFromImage(image.base64, image.mediaType)
+        : await claude.extractReceipt(testCase.raw_text as string);
       const got: string[] = [...extracted.categories].sort();
-      const expected: string[] = [...testCase.expected_categories].sort();
       return {
-        id: testCase.id,
-        raw_text: testCase.raw_text,
+        ...base,
         expected,
         got,
         exact: sameSet(expected, got),
@@ -165,12 +246,11 @@ async function runCase(
         [429, 502, 503, 504].includes(error.getStatus());
       if (!retryable || attempt === MAX_ATTEMPTS) {
         return {
-          id: testCase.id,
-          raw_text: testCase.raw_text,
-          expected: [...testCase.expected_categories].sort(),
+          ...base,
+          expected,
           got: [],
           exact: false,
-          missing: [...testCase.expected_categories].sort(),
+          missing: expected,
           spurious: [],
           error: error instanceof Error ? error.message : String(error),
         };
@@ -217,13 +297,86 @@ function scoreFlags(results: CaseResult[]): FlagScore {
   };
 }
 
-function score(results: CaseResult[]): {
+/**
+ * Exact-set-match rate and micro-F1 over a subset of the results, which is what
+ * the photo-vs-text comparison needs for each side of a pair.
+ */
+function summarize(results: CaseResult[]): {
+  cases: number;
+  exactMatchRate: number;
+  microF1: number;
+} {
+  let tp = 0;
+  let fp = 0;
+  let fn = 0;
+  for (const result of results) {
+    tp += result.got.filter((c) => result.expected.includes(c)).length;
+    fp += result.spurious.length;
+    fn += result.missing.length;
+  }
+  const precision = ratio(tp, tp + fp);
+  const recall = ratio(tp, tp + fn);
+  return {
+    cases: results.length,
+    exactMatchRate: ratio(
+      results.filter((r) => r.exact).length,
+      results.length,
+    ),
+    microF1: f1(precision, recall),
+  };
+}
+
+/**
+ * The photo-vs-text comparison: each image case that names a `same_as` text
+ * case which also ran in this invocation. A pair with only one side present -
+ * a photo whose file is missing, or a `--limit` that cut the other half off -
+ * is excluded and counted, because half a pair measures nothing.
+ */
+function scorePairs(results: CaseResult[]): {
+  paired: string[];
+  incomplete: string[];
+  text: ReturnType<typeof summarize>;
+  photo: ReturnType<typeof summarize>;
+} {
+  const byId = new Map(results.filter((r) => !r.skipped).map((r) => [r.id, r]));
+  const paired: string[] = [];
+  const incomplete: string[] = [];
+  const text: CaseResult[] = [];
+  const photo: CaseResult[] = [];
+
+  for (const result of results) {
+    if (result.source !== 'image' || !result.same_as) continue;
+    const image = byId.get(result.id);
+    const clean = byId.get(result.same_as);
+    if (!image || !clean) {
+      incomplete.push(result.id);
+      continue;
+    }
+    paired.push(result.id);
+    photo.push(image);
+    text.push(clean);
+  }
+
+  return {
+    paired,
+    incomplete,
+    text: summarize(text),
+    photo: summarize(photo),
+  };
+}
+
+function score(all: CaseResult[]): {
   categories: CategoryScore[];
   micro: { precision: number; recall: number; f1: number };
   exactMatchRate: number;
   flags: FlagScore;
+  pairs: ReturnType<typeof scorePairs>;
   errors: number;
+  skipped: number;
 } {
+  // A skipped case contributed no prediction, so it is evidence about nothing.
+  const results = all.filter((r) => !r.skipped);
+
   const categories = new Set<string>();
   for (const result of results) {
     result.expected.forEach((c) => categories.add(c));
@@ -275,7 +428,9 @@ function score(results: CaseResult[]): {
       results.length,
     ),
     flags: scoreFlags(results),
+    pairs: scorePairs(all),
     errors: results.filter((r) => r.error).length,
+    skipped: all.length - results.length,
   };
 }
 
@@ -315,9 +470,63 @@ function report(
       pad(pct(scores.micro.f1), 7),
   );
   lines.push('');
+  const scoredCount = results.length - scores.skipped;
   lines.push(
-    `Exact set match: ${pct(scores.exactMatchRate)} (${results.filter((r) => r.exact).length}/${results.length})   Errors: ${scores.errors}`,
+    `Exact set match: ${pct(scores.exactMatchRate)} (${results.filter((r) => r.exact).length}/${scoredCount})   ` +
+      `Errors: ${scores.errors}   Skipped: ${scores.skipped}`,
   );
+
+  const skipped = results.filter((r) => r.skipped);
+  if (skipped.length > 0) {
+    lines.push('');
+    lines.push(`Skipped (${skipped.length}), scored as nothing either way:`);
+    for (const r of skipped) {
+      lines.push(`  ${pad(r.id, 30)} ${r.skipped ?? ''}`);
+    }
+  }
+
+  lines.push('');
+  lines.push('=== Photo vs text ===');
+  lines.push('');
+  const pairs = scores.pairs;
+  if (pairs.paired.length === 0) {
+    lines.push(
+      '  no complete pairs (an image case needs a "same_as" text case, and both have to run)',
+    );
+    if (pairs.incomplete.length > 0) {
+      lines.push(`  incomplete pairs: ${pairs.incomplete.join(', ')}`);
+    }
+  } else {
+    lines.push(
+      `  ${pairs.paired.length} paired receipts, same expectations on both sides`,
+    );
+    lines.push('');
+    lines.push(pad('', 18) + pad('exact match', 15) + pad('micro F1', 15));
+    lines.push('-'.repeat(48));
+    lines.push(
+      pad('clean text', 18) +
+        pad(pct(pairs.text.exactMatchRate), 15) +
+        pad(pct(pairs.text.microF1), 15),
+    );
+    lines.push(
+      pad('photograph', 18) +
+        pad(pct(pairs.photo.exactMatchRate), 15) +
+        pad(pct(pairs.photo.microF1), 15),
+    );
+    lines.push('-'.repeat(48));
+    // The number the feature exists to produce: what photographs cost.
+    lines.push(
+      pad('delta', 18) +
+        pad(pp(pairs.photo.exactMatchRate - pairs.text.exactMatchRate), 15) +
+        pad(pp(pairs.photo.microF1 - pairs.text.microF1), 15),
+    );
+    if (pairs.incomplete.length > 0) {
+      lines.push('');
+      lines.push(
+        `  excluded, only one side ran: ${pairs.incomplete.join(', ')}`,
+      );
+    }
+  }
 
   lines.push('');
   lines.push('=== Anomaly flag ===');
@@ -345,7 +554,7 @@ function report(
       for (const r of flagWrong) {
         lines.push('');
         lines.push(`    ${r.id}`);
-        lines.push(`      text     : ${r.raw_text}`);
+        lines.push(`      ${pad(r.source, 9)}: ${r.input}`);
         lines.push(
           `      expected : ${String(r.expected_suspicious)}   got: ${String(r.suspicious)}`,
         );
@@ -354,14 +563,14 @@ function report(
     }
   }
 
-  const wrong = results.filter((r) => !r.exact);
+  const wrong = results.filter((r) => !r.exact && !r.skipped);
   if (wrong.length > 0) {
     lines.push('');
     lines.push(`Mismatches (${wrong.length}):`);
     for (const r of wrong) {
       lines.push('');
       lines.push(`  ${r.id}`);
-      lines.push(`    text     : ${r.raw_text}`);
+      lines.push(`    ${pad(r.source, 9)}: ${r.input}`);
       lines.push(`    expected : ${r.expected.join(', ') || '(none)'}`);
       lines.push(`    got      : ${r.got.join(', ') || '(none)'}`);
       if (r.missing.length)
@@ -398,6 +607,9 @@ const f1 = (precision: number, recall: number): number =>
     ? 0
     : (2 * precision * recall) / (precision + recall);
 const pct = (value: number): string => `${(value * 100).toFixed(1)}%`;
+/** Signed percentage points, for the photo-vs-text delta. */
+const pp = (value: number): string =>
+  `${value >= 0 ? '+' : ''}${(value * 100).toFixed(1)}pp`;
 const pad = (value: string, width: number): string => value.padEnd(width);
 const sameSet = (a: string[], b: string[]): boolean =>
   a.length === b.length && a.every((value, index) => value === b[index]);

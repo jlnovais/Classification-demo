@@ -1,5 +1,5 @@
 {
-  "description": "Hand-labelled receipts for measuring category classification. expected_categories is compared as a set; order does not matter. expected_suspicious is optional and scores the anomaly flag; a case without it is excluded from that metric rather than assumed false, so the category cases need no verdict invented for them. Replace and extend these with real receipts from your own data as you collect them.",
+  "description": "Hand-labelled receipts for measuring category classification. expected_categories is compared as a set; order does not matter. expected_suspicious is optional and scores the anomaly flag; a case without it is excluded from that metric rather than assumed false, so the category cases need no verdict invented for them. A case carries either raw_text or image (a path relative to eval/); an image case with a same_as pointing at the clean-text case for the same receipt is additionally compared against it in the photo-vs-text section, which is where the real cost of accepting photographs shows up. An image case whose file is missing is skipped, not failed - see eval/images/README.md. Replace and extend these with real receipts from your own data as you collect them.",
   "cases": [
     {
       "id": "tasco-spoons",
@@ -210,7 +210,6 @@
       "raw_text": "Primark, Braga - 20/07/2026. Meias 5 pares, Toalhas de banho 2. Total: 24.30 EUR. Multibanco.",
       "expected_categories": ["Clothing", "Home & Kitchen"]
     },
-
     {
       "id": "anomaly-weekend-groceries",
       "raw_text": "Continente, Braga - 15/08/2026. Leite 6, Pão 1, Maçãs 1kg. Total: 11.40 EUR. Multibanco.",
@@ -266,6 +265,34 @@
       "expected_categories": ["Transportation"],
       "expected_suspicious": false,
       "note": "An unremarkable Wednesday tank of diesel. Nothing should fire."
+    },
+    {
+      "id": "tasco-spoons--photo",
+      "image": "images/tasco-spoons.jpg",
+      "same_as": "tasco-spoons",
+      "expected_categories": ["Home & Kitchen"],
+      "note": "The items-beat-merchant case, photographed. Blurred item lines are where this one breaks: unreadable 'Colheres' leaves only the tavern name."
+    },
+    {
+      "id": "supermarket-three-way--photo",
+      "image": "images/supermarket-three-way.jpg",
+      "same_as": "supermarket-three-way",
+      "expected_categories": ["Food", "Household Supplies", "Home & Kitchen"],
+      "note": "Three categories from a long item list - the case most exposed to a photo that cuts off the bottom of the till roll."
+    },
+    {
+      "id": "pharmacy-medication--photo",
+      "image": "images/pharmacy-medication.jpg",
+      "same_as": "pharmacy-medication",
+      "expected_categories": ["Health"],
+      "note": "Small print on thermal paper, the everyday hard case for a phone photo."
+    },
+    {
+      "id": "hotel--photo",
+      "image": "images/hotel.jpg",
+      "same_as": "hotel",
+      "expected_categories": ["Travel & Accommodation"],
+      "note": "Few items, large total. Should survive a bad photo; if it does not, the problem is the image pipeline, not the taxonomy."
     }
   ]
 }
