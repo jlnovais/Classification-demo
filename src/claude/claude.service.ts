@@ -92,6 +92,10 @@ export type ReceiptSource = keyof typeof PROMPT_INTRO;
 
 const PROMPT_BODY = `Field rules:
 - "merchant" is the name of the store or business only, without the location (e.g. "Fresh Grocer Downtown" -> merchant "Fresh Grocer", location "Downtown").
+- "merchant_details" is the full name of the store or business owner including any location or head office information address. Use null if none is present.
+- "merchant_vatNumber" is the VAT number of the merchant, if any. Use null if none is present. If more than one is present, use the first one. In portuguese receipts, this is often labeled "NIF" or "Número de Identificação Fiscal". In English receipts, it may be labeled "VAT", "VAT ID", or "Tax ID".
+- "merchant_phone" is the phone number of the merchant, if any. Use null if none is present.
+- "invoice_number" is the number of the invoice, if any. Use null if none is present.
 - "location" is the city or place mentioned, if any. Use null if none is present.
 - "date" must be normalized to ISO 8601 (YYYY-MM-DD). Use null if no date is present.
 - "total_amount" is the final total paid, as a plain number with no currency symbols or thousands separators.
@@ -181,6 +185,10 @@ const RECEIPT_JSON_SCHEMA = {
   type: 'object',
   properties: {
     merchant: nullableString,
+    merchant_details: nullableString,
+    merchant_vatNumber: nullableString,
+    merchant_phone: nullableString,
+    invoice_number: nullableString,
     location: nullableString,
     date: {
       ...nullableString,
@@ -252,6 +260,10 @@ const RECEIPT_JSON_SCHEMA = {
   },
   required: [
     'merchant',
+    'merchant_details',
+    'merchant_vatNumber',
+    'merchant_phone',
+    'invoice_number',
     'location',
     'date',
     'total_amount',
@@ -519,6 +531,24 @@ export class ClaudeService {
     systemPrompt: string,
     content: Anthropic.MessageParam['content'],
   ) {
+    const response = this.request(() =>
+      this.client.messages.parse({
+        model: this.model,
+        max_tokens: MAX_TOKENS,
+        system: systemPrompt,
+        messages: [{ role: 'user', content }],
+        output_config: {
+          ...(this.supportsEffort ? { effort: 'low' as const } : {}),
+          format: RECEIPT_OUTPUT_FORMAT,
+        },
+      }),
+    );
+
+    console.log('[LOG] response.content', (await response).content);
+
+    return response;
+
+    /*
     return this.request(() =>
       this.client.messages.parse({
         model: this.model,
@@ -531,6 +561,7 @@ export class ClaudeService {
         },
       }),
     );
+    */
   }
 
   /**

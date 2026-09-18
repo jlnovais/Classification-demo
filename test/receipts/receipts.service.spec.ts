@@ -338,6 +338,10 @@ describe('ReceiptsService', () => {
 function extraction() {
   return {
     merchant: 'Fresh Grocer',
+    merchant_details: 'Fresh Grocer Lda, Rua do Comercio 12, Lisboa',
+    merchant_vatNumber: 'PT501234567',
+    merchant_phone: '+351 210 000 000',
+    invoice_number: 'FT 2026/1234',
     location: 'Downtown',
     date: '2026-08-12',
     total_amount: 4.5,
@@ -360,6 +364,10 @@ function record(id: string) {
   return {
     id,
     merchant: 'Fresh Grocer',
+    merchant_details: 'Fresh Grocer Lda, Rua do Comercio 12, Lisboa',
+    merchant_vatNumber: 'PT501234567',
+    merchant_phone: '+351 210 000 000',
+    invoice_number: 'FT 2026/1234',
     location: 'Downtown',
     receipt_date: '2026-08-12',
     total_amount: '4.50',

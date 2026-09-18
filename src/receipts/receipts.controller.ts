@@ -63,6 +63,8 @@ export class ReceiptsController {
     return this.receiptsService.parseReceipt(dto);
   }
 
+  //------------------------
+
   @Post('parse-receipt-pdf')
   // The multer limit is the first line of defence: without it the whole upload
   // is buffered into memory before any validator gets a say. `validatePdfUpload`
@@ -109,6 +111,8 @@ export class ReceiptsController {
     return this.receiptsService.parseReceiptPdf(validatePdfUpload(file));
   }
 
+  //------------------------
+
   @Post('parse-receipt-image')
   // Same two-layer defence as the PDF endpoint: multer caps what is buffered,
   // and `validateImageUpload` re-checks the size and reads the real format out
@@ -154,8 +158,19 @@ export class ReceiptsController {
     @UploadedFile() file?: Express.Multer.File,
   ): Promise<ParsedReceiptResponseDto> {
     const { file: image, mediaType } = validateImageUpload(file);
-    return this.receiptsService.parseReceiptImage(image, mediaType);
+
+    const response = await this.receiptsService.parseReceiptImage(
+      image,
+      mediaType,
+    );
+    console.log('[LOG] response', response);
+
+    return response;
+
+    //return this.receiptsService.parseReceiptImage(image, mediaType);
   }
+
+  //------------------------
 
   @Get('insights')
   @ApiOperation({

@@ -15,6 +15,35 @@ export class ParsedReceiptResponseDto {
   merchant: string | null;
 
   @ApiPropertyOptional({
+    example: 'Fresh Grocer Lda, Rua do Comercio 12, 1200-100 Lisboa',
+    nullable: true,
+    description:
+      'Full business name including any address or head office details.',
+  })
+  merchant_details: string | null;
+
+  @ApiPropertyOptional({
+    example: 'PT501234567',
+    nullable: true,
+    description: 'Merchant VAT number (NIF, VAT ID or Tax ID).',
+  })
+  merchant_vatNumber: string | null;
+
+  @ApiPropertyOptional({
+    example: '+351 210 000 000',
+    nullable: true,
+    description: 'Merchant phone number.',
+  })
+  merchant_phone: string | null;
+
+  @ApiPropertyOptional({
+    example: 'FT 2026/1234',
+    nullable: true,
+    description: 'Invoice or receipt number printed on the document.',
+  })
+  invoice_number: string | null;
+
+  @ApiPropertyOptional({
     example: 'Downtown',
     nullable: true,
     description: 'City or place mentioned in the receipt.',

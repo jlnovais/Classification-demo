@@ -12,6 +12,10 @@ import { CategoryTotal, MonthTotal, SpendingSummary } from './spending-summary';
 export interface ReceiptRecord {
   id: string;
   merchant: string | null;
+  merchant_details: string | null;
+  merchant_vatNumber: string | null;
+  merchant_phone: string | null;
+  invoice_number: string | null;
   location: string | null;
   receipt_date: string | null;
   total_amount: string | null;
@@ -78,22 +82,30 @@ export class ReceiptsRepository {
     await this.db.pool.query(
       `UPDATE receipts SET
         merchant = $2,
-        location = $3,
-        receipt_date = $4,
-        total_amount = $5,
-        currency = $6,
-        payment_method = $7,
-        confidence_score = $8,
-        raw_response = $9,
-        is_suspicious = $10,
-        flag_reason = $11,
-        duplicate_of = $12,
+        merchant_details = $3,
+        merchant_vatNumber = $4,
+        merchant_phone = $5,
+        invoice_number = $6,
+        location = $7,
+        receipt_date = $8,
+        total_amount = $9,
+        currency = $10,
+        payment_method = $11,
+        confidence_score = $12,
+        raw_response = $13,
+        is_suspicious = $14,
+        flag_reason = $15,
+        duplicate_of = $16,
         status = 'completed',
         updated_at = now()
       WHERE id = $1`,
       [
         receiptId,
         extracted.merchant,
+        extracted.merchant_details,
+        extracted.merchant_vatNumber,
+        extracted.merchant_phone,
+        extracted.invoice_number,
         extracted.location,
         extracted.date,
         extracted.total_amount,
@@ -125,6 +137,8 @@ export class ReceiptsRepository {
         r.total_amount, r.currency,
         r.payment_method, r.confidence_score,
         r.is_suspicious, r.flag_reason, r.duplicate_of, r.status, r.created_at,
+        r.merchant_details, r.merchant_vatnumber AS "merchant_vatNumber",
+        r.merchant_phone, r.invoice_number,
         COALESCE(array_agg(c.name) FILTER (WHERE c.name IS NOT NULL), '{}') AS categories
       FROM receipts r
       LEFT JOIN receipt_categories rc ON rc.receipt_id = r.id
