@@ -147,6 +147,10 @@ export class ReceiptsService {
     return {
       id: record.id,
       merchant: record.merchant,
+      merchant_details: record.merchant_details,
+      merchant_vatNumber: record.merchant_vatNumber,
+      merchant_phone: record.merchant_phone,
+      invoice_number: record.invoice_number,
       location: record.location,
       date: record.receipt_date,
       total_amount:

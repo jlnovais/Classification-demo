@@ -88,6 +88,13 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       -- delete the copy that was flagged against it.
       ALTER TABLE receipts ADD COLUMN IF NOT EXISTS duplicate_of UUID
         REFERENCES receipts(id) ON DELETE SET NULL;
+
+      -- Merchant identity fields. Unquoted, so merchant_vatNumber is really
+      -- merchant_vatnumber - every SELECT of it needs an AS "merchant_vatNumber".
+      ALTER TABLE receipts ADD COLUMN IF NOT EXISTS merchant_details TEXT;
+      ALTER TABLE receipts ADD COLUMN IF NOT EXISTS merchant_vatNumber TEXT;
+      ALTER TABLE receipts ADD COLUMN IF NOT EXISTS merchant_phone TEXT;
+      ALTER TABLE receipts ADD COLUMN IF NOT EXISTS invoice_number TEXT;
     `);
 
     // Indexes for the two history queries in `receipts.repository.ts`, which
