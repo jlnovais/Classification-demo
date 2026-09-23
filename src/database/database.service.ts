@@ -95,6 +95,14 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       ALTER TABLE receipts ADD COLUMN IF NOT EXISTS merchant_vatNumber TEXT;
       ALTER TABLE receipts ADD COLUMN IF NOT EXISTS merchant_phone TEXT;
       ALTER TABLE receipts ADD COLUMN IF NOT EXISTS invoice_number TEXT;
+
+      -- The EUR conversion. All nullable: no total, no currency, or an FX
+      -- lookup that failed leaves them empty rather than failing the receipt.
+      -- fx_date is the day the rate applies to, which is the receipt date
+      -- unless the rate provider fell back to its nearest business day.
+      ALTER TABLE receipts ADD COLUMN IF NOT EXISTS total_eur NUMERIC(12, 2);
+      ALTER TABLE receipts ADD COLUMN IF NOT EXISTS fx_rate NUMERIC(18, 8);
+      ALTER TABLE receipts ADD COLUMN IF NOT EXISTS fx_date DATE;
     `);
 
     // Indexes for the two history queries in `receipts.repository.ts`, which

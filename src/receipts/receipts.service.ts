@@ -12,6 +12,7 @@ import { InsightsQueryDto } from './dto/insights-query.dto';
 import { InsightsResponseDto } from './dto/insights-response.dto';
 import { ParsedReceiptResponseDto } from './dto/parsed-receipt-response.dto';
 import { ParseReceiptDto } from './dto/parse-receipt.dto';
+import { FxService } from './fx.service';
 import { assessHistory } from './history-anomalies';
 import { ReceiptRecord, ReceiptsRepository } from './receipts.repository';
 import { isEmpty, renderSummary } from './spending-summary';
@@ -21,6 +22,7 @@ export class ReceiptsService {
   constructor(
     private readonly claude: ClaudeService,
     private readonly repository: ReceiptsRepository,
+    private readonly fx: FxService,
   ) {}
 
   async parseReceipt(dto: ParseReceiptDto): Promise<ParsedReceiptResponseDto> {
@@ -117,16 +119,22 @@ export class ReceiptsService {
       // only point where both are available: they need the finished extraction
       // to build a deduplication key from, and their verdict has to be part of
       // the row rather than an update after it.
-      const verdict = assessHistory(
-        extracted,
-        await this.repository.findHistory(receiptId, extracted),
-      );
+      // The FX lookup is independent of the history, so the two run together.
+      // No total or no currency means nothing to convert - no lookup at all.
+      const [history, fx] = await Promise.all([
+        this.repository.findHistory(receiptId, extracted),
+        extracted.total_amount !== null && extracted.currency
+          ? this.fx.rateToEur(extracted.currency, extracted.date)
+          : null,
+      ]);
+      const verdict = assessHistory(extracted, history);
 
       await this.repository.completeWithExtraction(
         receiptId,
         extracted,
         extracted,
         verdict,
+        fx,
       );
 
       const record = await this.repository.findById(receiptId);
@@ -156,6 +164,9 @@ export class ReceiptsService {
       total_amount:
         record.total_amount !== null ? Number(record.total_amount) : null,
       currency: record.currency,
+      total_eur: record.total_eur !== null ? Number(record.total_eur) : null,
+      fx_rate: record.fx_rate !== null ? Number(record.fx_rate) : null,
+      fx_date: record.fx_date,
       categories: record.categories,
       payment_method: record.payment_method,
       confidence_score:
