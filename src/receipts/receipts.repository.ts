@@ -82,15 +82,17 @@ export class ReceiptsRepository {
    * point the model's verdict has been unioned with the calendar and history
    * checks, and that merged result is what the row has to carry.
    *
-   * `total_eur` is computed here in NUMERIC rather than in JS, so the product
-   * is rounded once, exactly. A null `fx` leaves all three FX columns null.
+   * `totalEur` is computed by the caller and rounded to cents by the
+   * NUMERIC(12, 2) column on write. A null `rate` leaves all three FX columns
+   * null.
    */
   async completeWithExtraction(
     receiptId: string,
     extracted: ExtractedReceipt,
     rawResponse: unknown,
     verdict: ReceiptVerdict,
-    fx: FxRate | null,
+    rate: FxRate | null,
+    totalEur: number | null,
   ): Promise<void> {
     await this.db.pool.query(
       `UPDATE receipts SET
@@ -111,7 +113,7 @@ export class ReceiptsRepository {
         duplicate_of = $16,
         fx_rate = $17,
         fx_date = $18,
-        total_eur = round($9::numeric * $17::numeric, 2),
+        total_eur = $19,
         status = 'completed',
         updated_at = now()
       WHERE id = $1`,
@@ -132,8 +134,9 @@ export class ReceiptsRepository {
         verdict.is_suspicious,
         verdict.flag_reason,
         verdict.duplicate_of,
-        fx?.rate ?? null,
-        fx?.date ?? null,
+        rate?.rate ?? null,
+        rate?.date ?? null,
+        totalEur,
       ],
     );
 

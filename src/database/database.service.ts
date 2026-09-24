@@ -6,13 +6,13 @@ import { Pool } from 'pg';
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   readonly pool: Pool;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(config: ConfigService) {
     this.pool = new Pool({
-      host: this.config.get<string>('POSTGRES_HOST'),
-      port: this.config.get<number>('POSTGRES_PORT', 5432),
-      user: this.config.get<string>('POSTGRES_USER'),
-      password: this.config.get<string>('POSTGRES_PASSWORD', ''),
-      database: this.config.get<string>('POSTGRES_DB'),
+      host: config.get<string>('POSTGRES_HOST'),
+      port: config.get<number>('POSTGRES_PORT', 5432),
+      user: config.get<string>('POSTGRES_USER'),
+      password: config.get<string>('POSTGRES_PASSWORD', ''),
+      database: config.get<string>('POSTGRES_DB'),
     });
   }
 

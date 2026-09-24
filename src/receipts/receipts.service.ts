@@ -121,7 +121,7 @@ export class ReceiptsService {
       // the row rather than an update after it.
       // The FX lookup is independent of the history, so the two run together.
       // No total or no currency means nothing to convert - no lookup at all.
-      const [history, fx] = await Promise.all([
+      const [history, rate] = await Promise.all([
         this.repository.findHistory(receiptId, extracted),
         extracted.total_amount !== null && extracted.currency
           ? this.fx.rateToEur(extracted.currency, extracted.date)
@@ -129,12 +129,18 @@ export class ReceiptsService {
       ]);
       const verdict = assessHistory(extracted, history);
 
+      const totalEur =
+        extracted.total_amount !== null && rate !== null
+          ? extracted.total_amount * rate.rate
+          : null;
+
       await this.repository.completeWithExtraction(
         receiptId,
         extracted,
         extracted,
         verdict,
-        fx,
+        rate,
+        totalEur,
       );
 
       const record = await this.repository.findById(receiptId);

@@ -77,6 +77,7 @@ describe('ReceiptsService', () => {
       expect.anything(),
       { is_suspicious: false, flag_reason: null, duplicate_of: null },
       { rate: 1, date: '2026-08-12' },
+      4.5,
     );
     expect(result.total_amount).toBe(4.5);
     expect(result.total_eur).toBe(4.5);
@@ -117,6 +118,7 @@ describe('ReceiptsService', () => {
         flag_reason: 'A single steak at 450.00 EUR is implausible.',
         duplicate_of: null,
       },
+      expect.anything(),
       expect.anything(),
     );
     expect(result.is_suspicious).toBe(true);
@@ -159,6 +161,7 @@ describe('ReceiptsService', () => {
         duplicate_of: 'receipt-1',
       },
       expect.anything(),
+      expect.anything(),
     );
   });
 
@@ -194,6 +197,7 @@ describe('ReceiptsService', () => {
         duplicate_of: 'receipt-1',
       },
       expect.anything(),
+      expect.anything(),
     );
   });
 
@@ -216,6 +220,7 @@ describe('ReceiptsService', () => {
       expect.anything(),
       expect.anything(),
       expect.anything(),
+      null,
       null,
     );
     // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method

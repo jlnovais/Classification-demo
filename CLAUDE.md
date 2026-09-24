@@ -46,7 +46,7 @@ The eval harness cannot cover these: it builds a Nest context with `ClaudeModule
 
 Deterministic, not function calling: whether a receipt needs converting is `currency !== 'EUR'`, which code can answer, so the model is never asked. `FxService.rateToEur` (`src/receipts/fx.service.ts`) fetches the ECB reference rate from Frankfurter (free, keyless, no dependency - Node's `fetch`) **for the receipt's date**, not today's; an undated receipt gets the latest rate. The ECB publishes no weekend rates, so the provider answers with the nearest earlier business day and that date is what `fx_date` stores.
 
-Any FX failure - unknown currency, timeout (5 s), provider down - returns `null` and leaves `total_eur` / `fx_rate` / `fx_date` null. It never fails the receipt. `total_eur` is computed in SQL (`round(total_amount * fx_rate, 2)` inside `completeWithExtraction`) so the rounding happens once in NUMERIC. Rows from before the conversion existed have null `total_eur`; there is no backfill.
+Any FX failure - unknown currency, timeout (5 s), provider down - returns `null` and leaves `total_eur` / `fx_rate` / `fx_date` null. It never fails the receipt. `total_eur` is computed in `ReceiptsService.extractInto` (`total_amount * rate`, a JS float) and passed to `completeWithExtraction`; the `NUMERIC(12, 2)` column rounds it to cents on write. Rows from before the conversion existed have null `total_eur`; there is no backfill.
 
 ### Insights
 

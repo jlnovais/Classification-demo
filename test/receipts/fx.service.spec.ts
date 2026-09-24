@@ -1,7 +1,8 @@
+import { ConfigService } from '@nestjs/config';
 import { FxService } from '../../src/receipts/fx.service';
 
 describe('FxService', () => {
-  const fx = new FxService();
+  const fx = new FxService(new ConfigService({}));
   let fetchMock: jest.SpyInstance;
 
   beforeEach(() => {
@@ -37,7 +38,7 @@ describe('FxService', () => {
       date: '2024-03-15',
     });
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://api.frankfurter.dev/v1/2024-03-16?base=USD&symbols=EUR',
+      'https://api.frankfurter.dev/v1/2024-03-16?base=USD&symbols=EUR&amount=1',
       expect.anything(),
     );
   });
