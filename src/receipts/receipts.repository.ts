@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { ExtractedReceipt } from '../claude/claude.service';
 import { FxRate } from './fx.service';
+import { CurrencyTotal, ReceiptQuery } from './receipt-query';
 import {
   CategorySpread,
   DuplicateMatch,
@@ -388,6 +389,67 @@ export class ReceiptsRepository {
       currency: row.currency,
       receipts: row.receipts,
       total: Number(row.total),
+    }));
+  }
+
+  /**
+   * The query behind the `query_receipts` tool. The model chose `args`, so they
+   * arrive validated by `parseQueryArgs` and still only as parameters; the
+   * statement itself is fixed, with each optional filter written as
+   * `$n IS NULL OR ...` rather than assembled.
+   *
+   * The category filter is an EXISTS rather than a join, so a receipt in two of
+   * the requested categories is counted once - unlike `categoryTotals`, these
+   * totals can be quoted as they are. Grouped by currency for the same reason
+   * as the insights queries.
+   */
+  async queryReceipts(args: ReceiptQuery): Promise<CurrencyTotal[]> {
+    const result = await this.db.pool.query<{
+      currency: string | null;
+      receipts: number;
+      total: string | number;
+      total_eur: string | number | null;
+      unconverted: number;
+    }>(
+      `SELECT
+        r.currency,
+        count(*)::int AS receipts,
+        sum(r.total_amount) AS total,
+        sum(r.total_eur) AS total_eur,
+        (count(*) - count(r.total_eur))::int AS unconverted
+      FROM receipts r
+      WHERE r.status = 'completed'
+        AND r.total_amount IS NOT NULL
+        AND r.receipt_date BETWEEN $1::date AND $2::date
+        AND ($3::text[] IS NULL OR EXISTS (
+          SELECT 1
+          FROM receipt_categories rc
+          JOIN categories c ON c.id = rc.category_id
+          WHERE rc.receipt_id = r.id AND c.name = ANY($3::text[])
+        ))
+        AND ($4::text IS NULL OR r.merchant ILIKE '%' || $4::text || '%')
+        AND ($5::numeric IS NULL OR r.total_amount >= $5::numeric)
+        AND ($6::numeric IS NULL OR r.total_amount <= $6::numeric)
+      GROUP BY r.currency
+      ORDER BY r.currency`,
+      [
+        args.from,
+        args.to,
+        args.categories,
+        // ILIKE's own wildcards are escaped, so a merchant named "100%" is a
+        // literal match rather than a pattern.
+        args.merchant?.replace(/[\\%_]/g, '\\$&') ?? null,
+        args.min_total,
+        args.max_total,
+      ],
+    );
+
+    return result.rows.map((row) => ({
+      currency: row.currency,
+      receipts: row.receipts,
+      total: Number(row.total),
+      total_eur: Number(row.total_eur ?? 0),
+      unconverted: row.unconverted,
     }));
   }
 

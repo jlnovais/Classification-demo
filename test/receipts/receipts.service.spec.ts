@@ -24,6 +24,7 @@ describe('ReceiptsService', () => {
             extractReceiptFromPdf: jest.fn(),
             extractReceiptFromImage: jest.fn(),
             summarizeSpending: jest.fn(),
+            answerQuestion: jest.fn(),
           },
         },
         {
@@ -40,6 +41,7 @@ describe('ReceiptsService', () => {
               .fn()
               .mockResolvedValue({ duplicate: null, spreads: [] }),
             spendingSummary: jest.fn(),
+            queryReceipts: jest.fn(),
           },
         },
         {
@@ -395,6 +397,54 @@ describe('ReceiptsService', () => {
 
     // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
     expect(repository.spendingSummary).not.toHaveBeenCalled();
+  });
+
+  it('runs only the valid tool calls and reports every one', async () => {
+    const totals = [
+      {
+        currency: 'EUR',
+        receipts: 3,
+        total: 42.5,
+        total_eur: 42.5,
+        unconverted: 0,
+      },
+    ];
+    repository.queryReceipts.mockResolvedValue(totals);
+    const valid = {
+      from: '2026-06-01',
+      to: '2026-08-31',
+      categories: ['Food'],
+      merchant: null,
+      min_total: null,
+      max_total: null,
+    };
+    const invalid = { ...valid, from: '2026-09-01' };
+    const outcomes: unknown[] = [];
+    // Stands in for the model: one bad call, then a corrected one.
+    claude.answerQuestion.mockImplementation(async (_q, _today, runQuery) => {
+      outcomes.push(await runQuery(invalid), await runQuery(valid));
+      return 'You spent 42.50 EUR on food.';
+    });
+
+    const result = await service.ask({ question: 'Food this summer?' });
+
+    // The rejected arguments never reach the database.
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
+    expect(repository.queryReceipts).toHaveBeenCalledTimes(1);
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
+    expect(repository.queryReceipts).toHaveBeenCalledWith(valid);
+    const error = '"from" must not be later than "to".';
+    expect(outcomes).toEqual([
+      { content: error, is_error: true },
+      { content: JSON.stringify(totals), is_error: false },
+    ]);
+    expect(result).toEqual({
+      answer: 'You spent 42.50 EUR on food.',
+      queries: [
+        { input: invalid, error },
+        { input: valid, result: totals },
+      ],
+    });
   });
 });
 

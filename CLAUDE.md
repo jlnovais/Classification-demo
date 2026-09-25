@@ -22,7 +22,7 @@ Setup: copy `.env.template` to `.env`. `POSTGRES_HOST`, `POSTGRES_USER`, `POSTGR
 
 ## Architecture
 
-Nest app with three modules under `src/`: `database` (raw `pg`), `claude` (the model call), `receipts` (HTTP + persistence). Four endpoints: `POST /api/parse-receipt` (JSON `raw_text`), `POST /api/parse-receipt-pdf` (multipart `file`) and `POST /api/parse-receipt-image` (multipart `file`, a phone photo), all three returning the same `ParsedReceiptResponseDto`, plus `GET /api/insights` (see below). Swagger at `/docs`.
+Nest app with three modules under `src/`: `database` (raw `pg`), `claude` (the model call), `receipts` (HTTP + persistence). Four endpoints: `POST /api/parse-receipt` (JSON `raw_text`), `POST /api/parse-receipt-pdf` (multipart `file`) and `POST /api/parse-receipt-image` (multipart `file`, a phone photo), all three returning the same `ParsedReceiptResponseDto`, plus `GET /api/insights` and `POST /api/ask` (see below). Swagger at `/docs`.
 
 Request flow for all three extraction endpoints: `ReceiptsRepository` inserts a `pending` row (recording the exact system prompt in `prompt_used`) → `ClaudeService` extracts → the history checks and the EUR rate lookup run in parallel → the row is completed and categories linked, or marked `failed`. `ReceiptsService.extractInto` is the shared tail of every path, so the endpoints cannot diverge on persistence or failure bookkeeping.
 
@@ -57,6 +57,14 @@ Two facts are stated inside that block rather than in the system prompt, because
 A third query (`months_eur`) sums `total_eur` per month across all currencies - the only cross-currency figure, produced by SQL. Its block section states that it is *the same spending* as the month lines, not additional; drop that line and the model adds the converted total to the EUR line. Receipts without a conversion are counted as `unconverted`, not summed, and the section is omitted when nothing in the period was converted.
 
 The response returns the aggregates alongside the prose so any sentence can be checked against what the model saw. An empty period short-circuits before the API call. `ClaudeService.summarizeSpending` is a plain `messages.create` with no output schema (the answer is prose), sharing the error mapping through `ClaudeService.request`; truncation is logged rather than thrown, since a report cut short is still readable. The pure rendering is covered by `test/receipts/spending-summary.spec.ts`.
+
+### Natural-language queries
+
+`POST /api/ask` (JSON `question`) is the one place the model uses **function calling**. It gets a single tool, `query_receipts` (`QUERY_RECEIPTS_TOOL` in `claude.service.ts`, `strict: true`), with fixed filters: period, categories (the `CATEGORIES` enum), merchant substring, total range. **The tool surface is the security boundary**: the model picks arguments, never SQL. `parseQueryArgs` in `src/receipts/receipt-query.ts` re-validates them anyway (real dates, ordered range, known categories, no extra keys); a rejection goes back to the model as an `is_error` `tool_result` so it can correct itself, and never reaches `ReceiptsRepository.queryReceipts`, whose statement is fixed with each optional filter written as `$n IS NULL OR ...`.
+
+`ClaudeService.answerQuestion` is the tool-use loop written out by hand (not the SDK tool runner), capped at `MAX_ASK_CALLS` model calls. ClaudeModule does not depend on the receipts module: the loop takes a `runQuery` callback, which `ReceiptsService.ask` supplies. Today's date travels in the user turn, not the system prompt, so relative periods resolve and the system prefix stays constant.
+
+`queryReceipts` filters categories with `EXISTS`, not a join, so a two-category receipt counts once and the totals can be quoted as-is — unlike the insights `categoryTotals`. Rows are per currency, with `total_eur` as the same spending converted. The response returns every call (arguments plus result, or the validation error) alongside the answer, like `/insights`. The pure validator is covered by `test/receipts/receipt-query.spec.ts`; the loop itself has no unit test.
 
 **Env validation** is hand-rolled: `src/config/validate-env.ts` is a generic factory (coerce by key list, then enforce required keys), and `src/config/env.validation.ts` is this app's key lists. `ConfigModule` runs it with `skipProcessEnv: true`, so a var not listed in `env.validation.ts` is invisible to `ConfigService` — adding an env var means adding it there.
 

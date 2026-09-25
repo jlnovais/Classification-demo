@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   Post,
   Query,
   UploadedFile,
@@ -15,6 +16,8 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { AskDto } from './dto/ask.dto';
+import { AskResponseDto } from './dto/ask-response.dto';
 import { InsightsQueryDto } from './dto/insights-query.dto';
 import { InsightsResponseDto } from './dto/insights-response.dto';
 import { ParsedReceiptResponseDto } from './dto/parsed-receipt-response.dto';
@@ -205,5 +208,39 @@ export class ReceiptsController {
     @Query() query: InsightsQueryDto,
   ): Promise<InsightsResponseDto> {
     return this.receiptsService.insights(query);
+  }
+
+  //------------------------
+
+  @Post('ask')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Answer a plain-language question about the receipt history.',
+    description:
+      'Claude is given one tool, query_receipts, with fixed filters (period, categories, merchant, total range). ' +
+      'It chooses the arguments; the query itself is ours and parameterized, and arguments are validated before ' +
+      'reaching the database. Every call it made is returned alongside the answer.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'The answer, plus every query it was written from.',
+    type: AskResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Validation error (e.g. missing or empty question).',
+  })
+  @ApiResponse({
+    status: 429,
+    description:
+      'The Claude API rate limit was reached. The response body carries the upstream details.',
+  })
+  @ApiResponse({
+    status: 503,
+    description:
+      'The Claude API is overloaded or unavailable. Safe to retry; the response body carries the upstream details.',
+  })
+  async ask(@Body() dto: AskDto): Promise<AskResponseDto> {
+    return this.receiptsService.ask(dto);
   }
 }
