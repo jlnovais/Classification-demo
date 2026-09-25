@@ -15,12 +15,13 @@ Muitas vezes o nome do comerciante no recibo é um nome fiscal obscuro (ex: "SOC
 - **Conceito de IA:** Entity Resolution e uso de ferramentas externas (Function Calling / Tools).
 - **O que aprendes:** Permitir que a IA pesquise ou mapeie o nome fiscal para a marca comercial conhecida, identifique o número de contribuinte (NIF/NIPC) e valide a taxa de IVA aplicada.
 
-## 3. Normalização Multi-Moeda
+## 3. Normalização Multi-Moeda — ✅ feito
 
 Se o recibo for de uma viagem e estiver noutra moeda (USD, GBP, JPY), a API pode converter automaticamente o valor para EUR.
 
 - **Conceito de IA:** Function Calling (Chamada de Funções).
 - **O que aprendes:** Ensinar o modelo de IA a decidir quando precisa de chamar uma API externa de taxas de câmbio em tempo real para calcular o valor convertido antes de devolver a resposta final.
+- **Como ficou implementado:** **sem** function calling, de propósito. Saber se é preciso converter é `currency !== 'EUR'` — uma pergunta que o código responde, e perguntar ao modelo só acrescentava custo e uma forma de errar (a mesma lógica do fim de semana em `anomaly.ts`). `FxService.rateToEur` (`src/receipts/fx.service.ts`) vai buscar a taxa de referência do BCE à Frankfurter (grátis, sem chave, com o `fetch` do Node) **para a data do recibo**, não a de hoje — uma viagem em março converte à taxa de março. Corre em paralelo com as verificações de histórico dentro de `extractInto`, por isso as três vias ficam cobertas. Três colunas novas no bloco `ALTER` (`total_eur`, `fx_rate`, `fx_date`), todas nuláveis: uma falha da API de câmbio deixa-as a `null` em vez de falhar o recibo. `total_eur` é calculado em SQL, em NUMERIC. O `/insights` ganhou `months_eur`, a única soma entre moedas, feita pelo SQL e não pelo modelo. O function calling a sério fica para o #9, onde o modelo tem mesmo de escolher argumentos a partir de linguagem natural.
 
 ## 4. Pesquisa Semântica com Embeddings
 

@@ -71,6 +71,33 @@ export class ParsedReceiptResponseDto {
   })
   currency: string | null;
 
+  @ApiPropertyOptional({
+    example: 4.5,
+    nullable: true,
+    description:
+      'total_amount converted to EUR at the ECB reference rate for the ' +
+      'receipt date. Null when there is no total or currency, or the rate ' +
+      'lookup failed.',
+  })
+  total_eur: number | null;
+
+  @ApiPropertyOptional({
+    example: 1,
+    nullable: true,
+    description: 'The rate applied: 1 unit of currency = fx_rate EUR.',
+  })
+  fx_rate: number | null;
+
+  @ApiPropertyOptional({
+    example: '2026-08-12',
+    nullable: true,
+    description:
+      'The day fx_rate applies to. The ECB publishes no weekend or holiday ' +
+      'rates, so this is the nearest earlier business day when the receipt ' +
+      'date has none.',
+  })
+  fx_date: string | null;
+
   @ApiProperty({
     example: ['Food'],
     type: [String],

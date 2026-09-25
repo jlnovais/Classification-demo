@@ -24,7 +24,7 @@ Setup: copy `.env.template` to `.env`. `POSTGRES_HOST`, `POSTGRES_USER`, `POSTGR
 
 Nest app with three modules under `src/`: `database` (raw `pg`), `claude` (the model call), `receipts` (HTTP + persistence). Four endpoints: `POST /api/parse-receipt` (JSON `raw_text`), `POST /api/parse-receipt-pdf` (multipart `file`) and `POST /api/parse-receipt-image` (multipart `file`, a phone photo), all three returning the same `ParsedReceiptResponseDto`, plus `GET /api/insights` (see below). Swagger at `/docs`.
 
-Request flow for all three extraction endpoints: `ReceiptsRepository` inserts a `pending` row (recording the exact system prompt in `prompt_used`) → `ClaudeService` extracts → the history checks run → the row is completed and categories linked, or marked `failed`. `ReceiptsService.extractInto` is the shared tail of every path, so the endpoints cannot diverge on persistence or failure bookkeeping.
+Request flow for all three extraction endpoints: `ReceiptsRepository` inserts a `pending` row (recording the exact system prompt in `prompt_used`) → `ClaudeService` extracts → the history checks and the EUR rate lookup run in parallel → the row is completed and categories linked, or marked `failed`. `ReceiptsService.extractInto` is the shared tail of every path, so the endpoints cannot diverge on persistence or failure bookkeeping.
 
 **No ORM and no migration tool.** `DatabaseService.migrate()` runs raw SQL on `onModuleInit`: a `CREATE TABLE IF NOT EXISTS` block for the original schema, then a second block of idempotent `ALTER`s for everything added since. `CREATE TABLE IF NOT EXISTS` is a no-op on an existing database, so **any new column or constraint must go in the ALTER block as an idempotent statement**, not into the CREATE block. All queries are parameterized SQL in `receipts.repository.ts`.
 
@@ -42,11 +42,19 @@ The history checks are pure functions taking query results, not the pool, so the
 
 The eval harness cannot cover these: it builds a Nest context with `ClaudeModule` only, so there is no history to cross-check. They are covered by `test/receipts/history-anomalies.spec.ts` instead.
 
+### EUR conversion
+
+Deterministic, not function calling: whether a receipt needs converting is `currency !== 'EUR'`, which code can answer, so the model is never asked. `FxService.rateToEur` (`src/receipts/fx.service.ts`) fetches the ECB reference rate from Frankfurter (free, keyless, no dependency - Node's `fetch`) **for the receipt's date**, not today's; an undated receipt gets the latest rate. The ECB publishes no weekend rates, so the provider answers with the nearest earlier business day and that date is what `fx_date` stores.
+
+Any FX failure - unknown currency, timeout (5 s), provider down - returns `null` and leaves `total_eur` / `fx_rate` / `fx_date` null. It never fails the receipt. `total_eur` is computed in `ReceiptsService.extractInto` (`total_amount * rate`, a JS float) and passed to `completeWithExtraction`; the `NUMERIC(12, 2)` column rounds it to cents on write. Rows from before the conversion existed have null `total_eur`; there is no backfill.
+
 ### Insights
 
 `GET /api/insights?from=&to=` writes a prose report on a period. The rule is that **SQL aggregates first and the model only writes about the totals** - it never sees a receipt, so it has nothing to add up wrongly. `ReceiptsRepository.spendingSummary` runs two grouped queries (per category, per month), both grouped by currency as well so a EUR total is never added to a USD one, and `renderSummary` in `src/receipts/spending-summary.ts` turns them into the text block.
 
 Two facts are stated inside that block rather than in the system prompt, because they are properties of those numbers rather than of the task: month totals count each receipt once and may be summed; category totals overlap (a two-category receipt counts in full under both) and must not be. Drop either line and the model reports a grand total no query produced. The prompt itself carries the general rules - no invented or extrapolated figures, no cross-currency addition.
+
+A third query (`months_eur`) sums `total_eur` per month across all currencies - the only cross-currency figure, produced by SQL. Its block section states that it is *the same spending* as the month lines, not additional; drop that line and the model adds the converted total to the EUR line. Receipts without a conversion are counted as `unconverted`, not summed, and the section is omitted when nothing in the period was converted.
 
 The response returns the aggregates alongside the prose so any sentence can be checked against what the model saw. An empty period short-circuits before the API call. `ClaudeService.summarizeSpending` is a plain `messages.create` with no output schema (the answer is prose), sharing the error mapping through `ClaudeService.request`; truncation is logged rather than thrown, since a report cut short is still readable. The pure rendering is covered by `test/receipts/spending-summary.spec.ts`.
 

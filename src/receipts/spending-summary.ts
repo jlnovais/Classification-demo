@@ -27,12 +27,26 @@ export interface MonthTotal {
   total: number;
 }
 
+/**
+ * Spending in one calendar month with every currency converted to EUR. The
+ * only cross-currency figure in the summary, and SQL produces it, not the
+ * model. `unconverted` counts the receipts left out for lack of a rate - rows
+ * from before the conversion existed, or a lookup that failed.
+ */
+export interface MonthEurTotal {
+  month: string;
+  receipts: number;
+  total_eur: number;
+  unconverted: number;
+}
+
 /** Everything the report is written from, as gathered by the repository. */
 export interface SpendingSummary {
   from: string;
   to: string;
   categories: CategoryTotal[];
   months: MonthTotal[];
+  months_eur: MonthEurTotal[];
 }
 
 /** Nothing completed in the range, so there is nothing to write about. */
@@ -70,7 +84,33 @@ export function renderSummary(summary: SpendingSummary): string {
         `- ${entry.category}: ${money(entry.total, entry.currency)} over ` +
         `${plural(entry.receipts, 'receipt')}`,
     ),
+    ...renderEur(summary.months_eur),
   ].join('\n');
+}
+
+/**
+ * The EUR section, stated as a second view of the month lines rather than more
+ * spending - without that the model adds the converted total to the EUR line it
+ * already reported. Omitted when nothing in the period could be converted.
+ */
+function renderEur(months: MonthEurTotal[]): string[] {
+  if (!months.some((month) => month.receipts > 0)) return [];
+
+  return [
+    '',
+    'Totals per month with every currency converted to EUR at the ECB rate on',
+    "each receipt's date. This is the same spending as the month lines above,",
+    'not additional spending. Each receipt is counted once, so these lines may',
+    'be added up, and they are the only figures that combine currencies:',
+    ...months.map(
+      (month) =>
+        `- ${month.month}: ${money(month.total_eur, 'EUR')} over ` +
+        `${plural(month.receipts, 'receipt')}` +
+        (month.unconverted > 0
+          ? ` (${plural(month.unconverted, 'receipt')} could not be converted and ${month.unconverted === 1 ? 'is' : 'are'} left out)`
+          : ''),
+    ),
+  ];
 }
 
 /** Two decimals and the currency code, or no code when the receipts carried none. */

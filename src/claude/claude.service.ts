@@ -341,12 +341,11 @@ export class ClaudeService {
   readonly model: string;
   private readonly supportsEffort: boolean;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(config: ConfigService) {
     this.client = new Anthropic({
-      apiKey: this.config.get<string>('ANTHROPIC_API_KEY'),
+      apiKey: config.get<string>('ANTHROPIC_API_KEY'),
     });
-    this.model =
-      this.config.get<string>('ANTHROPIC_MODEL') ?? 'claude-haiku-4-5';
+    this.model = config.get<string>('ANTHROPIC_MODEL') ?? 'claude-haiku-4-5';
 
     this.supportsEffort = !MODELS_WITHOUT_EFFORT.some((pattern) =>
       pattern.test(this.model),

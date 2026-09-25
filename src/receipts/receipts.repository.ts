@@ -1,13 +1,19 @@
 import { Injectable } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { ExtractedReceipt } from '../claude/claude.service';
+import { FxRate } from './fx.service';
 import {
   CategorySpread,
   DuplicateMatch,
   ReceiptHistory,
   ReceiptVerdict,
 } from './history-anomalies';
-import { CategoryTotal, MonthTotal, SpendingSummary } from './spending-summary';
+import {
+  CategoryTotal,
+  MonthEurTotal,
+  MonthTotal,
+  SpendingSummary,
+} from './spending-summary';
 
 export interface ReceiptRecord {
   id: string;
@@ -20,6 +26,9 @@ export interface ReceiptRecord {
   receipt_date: string | null;
   total_amount: string | null;
   currency: string | null;
+  total_eur: string | null;
+  fx_rate: string | null;
+  fx_date: string | null;
   payment_method: string | null;
   confidence_score: string | null;
   // BOOLEAN comes back from `pg` as a real boolean, unlike the NUMERIC columns
@@ -72,12 +81,18 @@ export class ReceiptsRepository {
    * `verdict` is written instead of the extraction's own flag fields: by this
    * point the model's verdict has been unioned with the calendar and history
    * checks, and that merged result is what the row has to carry.
+   *
+   * `totalEur` is computed by the caller and rounded to cents by the
+   * NUMERIC(12, 2) column on write. A null `rate` leaves all three FX columns
+   * null.
    */
   async completeWithExtraction(
     receiptId: string,
     extracted: ExtractedReceipt,
     rawResponse: unknown,
     verdict: ReceiptVerdict,
+    rate: FxRate | null,
+    totalEur: number | null,
   ): Promise<void> {
     await this.db.pool.query(
       `UPDATE receipts SET
@@ -96,6 +111,9 @@ export class ReceiptsRepository {
         is_suspicious = $14,
         flag_reason = $15,
         duplicate_of = $16,
+        fx_rate = $17,
+        fx_date = $18,
+        total_eur = $19,
         status = 'completed',
         updated_at = now()
       WHERE id = $1`,
@@ -116,6 +134,9 @@ export class ReceiptsRepository {
         verdict.is_suspicious,
         verdict.flag_reason,
         verdict.duplicate_of,
+        rate?.rate ?? null,
+        rate?.date ?? null,
+        totalEur,
       ],
     );
 
@@ -135,6 +156,7 @@ export class ReceiptsRepository {
         r.id, r.merchant, r.location,
         to_char(r.receipt_date, 'YYYY-MM-DD') AS receipt_date,
         r.total_amount, r.currency,
+        r.total_eur, r.fx_rate, to_char(r.fx_date, 'YYYY-MM-DD') AS fx_date,
         r.payment_method, r.confidence_score,
         r.is_suspicious, r.flag_reason, r.duplicate_of, r.status, r.created_at,
         r.merchant_details, r.merchant_vatnumber AS "merchant_vatNumber",
@@ -254,12 +276,50 @@ export class ReceiptsRepository {
    * USD one. Undated receipts are excluded: they cannot be placed in the range.
    */
   async spendingSummary(from: string, to: string): Promise<SpendingSummary> {
-    const [categories, months] = await Promise.all([
+    const [categories, months, months_eur] = await Promise.all([
       this.categoryTotals(from, to),
       this.monthTotals(from, to),
+      this.monthTotalsEur(from, to),
     ]);
 
-    return { from, to, categories, months };
+    return { from, to, categories, months, months_eur };
+  }
+
+  /**
+   * Spend per calendar month in EUR, across every currency. Grouped by month
+   * alone - unlike the other two queries - because `total_eur` is already one
+   * currency. Receipts without a conversion are counted, not summed.
+   */
+  private async monthTotalsEur(
+    from: string,
+    to: string,
+  ): Promise<MonthEurTotal[]> {
+    const result = await this.db.pool.query<{
+      month: string;
+      receipts: number;
+      total_eur: string | number | null;
+      unconverted: number;
+    }>(
+      `SELECT
+        to_char(date_trunc('month', r.receipt_date), 'YYYY-MM') AS month,
+        count(r.total_eur)::int AS receipts,
+        sum(r.total_eur) AS total_eur,
+        (count(*) - count(r.total_eur))::int AS unconverted
+      FROM receipts r
+      WHERE r.status = 'completed'
+        AND r.total_amount IS NOT NULL
+        AND r.receipt_date BETWEEN $1::date AND $2::date
+      GROUP BY 1
+      ORDER BY 1`,
+      [from, to],
+    );
+
+    return result.rows.map((row) => ({
+      month: row.month,
+      receipts: row.receipts,
+      total_eur: Number(row.total_eur ?? 0),
+      unconverted: row.unconverted,
+    }));
   }
 
   /**

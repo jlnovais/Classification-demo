@@ -49,6 +49,36 @@ describe('renderSummary', () => {
   });
 });
 
+describe('renderSummary EUR section', () => {
+  it('renders the converted month totals as the same spending, not more', () => {
+    const block = renderSummary(
+      summary({
+        months_eur: [
+          { month: '2026-01', receipts: 10, total_eur: 170.1, unconverted: 1 },
+        ],
+      }),
+    );
+
+    expect(block).toContain(
+      '- 2026-01: 170.10 EUR over 10 receipts (1 receipt could not be converted and is left out)',
+    );
+    // Without this line the model adds 170.10 to the 133.20 EUR month line.
+    expect(block).toContain('not additional spending');
+  });
+
+  it('is omitted when nothing in the period was converted', () => {
+    const block = renderSummary(
+      summary({
+        months_eur: [
+          { month: '2026-01', receipts: 0, total_eur: 0, unconverted: 9 },
+        ],
+      }),
+    );
+
+    expect(block).not.toContain('converted to EUR');
+  });
+});
+
 describe('isEmpty', () => {
   it('is empty when no month has any spending', () => {
     expect(isEmpty(summary({ months: [], categories: [] }))).toBe(true);
@@ -64,6 +94,7 @@ function summary(overrides: Partial<SpendingSummary> = {}): SpendingSummary {
     categories: [
       { category: 'Food', currency: 'EUR', receipts: 14, total: 210.4 },
     ],
+    months_eur: [],
     ...overrides,
   };
 }

@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { CategoryTotal, MonthTotal } from '../spending-summary';
+import { CategoryTotal, MonthEurTotal, MonthTotal } from '../spending-summary';
 
 /**
  * The aggregates are returned alongside the prose on purpose: they are what the
@@ -36,4 +36,13 @@ export class InsightsResponseDto {
     example: [{ month: '2026-01', currency: 'EUR', receipts: 9, total: 133.2 }],
   })
   months: MonthTotal[];
+
+  @ApiProperty({
+    description:
+      'Spend per calendar month with every currency converted to EUR, counting each receipt once. The same spending as `months`, not in addition to it. `unconverted` counts receipts left out for lack of a rate.',
+    example: [
+      { month: '2026-01', receipts: 11, total_eur: 170.1, unconverted: 0 },
+    ],
+  })
+  months_eur: MonthEurTotal[];
 }

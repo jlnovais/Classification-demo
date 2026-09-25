@@ -1,5 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { ClaudeService } from '../../src/claude/claude.service';
+import { FxService } from '../../src/receipts/fx.service';
 import { ReceiptsRepository } from '../../src/receipts/receipts.repository';
 import { ReceiptsService } from '../../src/receipts/receipts.service';
 
@@ -7,6 +8,7 @@ describe('ReceiptsService', () => {
   let service: ReceiptsService;
   let claude: jest.Mocked<ClaudeService>;
   let repository: jest.Mocked<ReceiptsRepository>;
+  let fx: jest.Mocked<FxService>;
 
   beforeEach(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -40,12 +42,22 @@ describe('ReceiptsService', () => {
             spendingSummary: jest.fn(),
           },
         },
+        {
+          provide: FxService,
+          // The fixtures are EUR receipts, so the identity rate is the default.
+          useValue: {
+            rateToEur: jest
+              .fn()
+              .mockResolvedValue({ rate: 1, date: '2026-08-12' }),
+          },
+        },
       ],
     }).compile();
 
     service = moduleRef.get(ReceiptsService);
     claude = moduleRef.get(ClaudeService);
     repository = moduleRef.get(ReceiptsRepository);
+    fx = moduleRef.get(FxService);
   });
 
   it('saves the extraction and returns the formatted receipt', async () => {
@@ -64,8 +76,12 @@ describe('ReceiptsService', () => {
       expect.objectContaining({ merchant: 'Fresh Grocer' }),
       expect.anything(),
       { is_suspicious: false, flag_reason: null, duplicate_of: null },
+      { rate: 1, date: '2026-08-12' },
+      4.5,
     );
     expect(result.total_amount).toBe(4.5);
+    expect(result.total_eur).toBe(4.5);
+    expect(result.fx_rate).toBe(1);
     expect(result.confidence_score).toBe(0.95);
     expect(result.categories).toEqual(['Food']);
     expect(result.is_suspicious).toBe(false);
@@ -102,6 +118,8 @@ describe('ReceiptsService', () => {
         flag_reason: 'A single steak at 450.00 EUR is implausible.',
         duplicate_of: null,
       },
+      expect.anything(),
+      expect.anything(),
     );
     expect(result.is_suspicious).toBe(true);
     expect(result.flag_reason).toBe(
@@ -142,6 +160,8 @@ describe('ReceiptsService', () => {
           '2026-08-12; possible duplicate submission.',
         duplicate_of: 'receipt-1',
       },
+      expect.anything(),
+      expect.anything(),
     );
   });
 
@@ -176,7 +196,49 @@ describe('ReceiptsService', () => {
           'possible duplicate submission.',
         duplicate_of: 'receipt-1',
       },
+      expect.anything(),
+      expect.anything(),
     );
+  });
+
+  it('completes the receipt without a conversion when the rate lookup fails', async () => {
+    repository.createPending.mockResolvedValue('receipt-10');
+    claude.extractReceipt.mockResolvedValue({
+      ...extraction(),
+      currency: 'USD',
+    });
+    fx.rateToEur.mockResolvedValue(null);
+    repository.findById.mockResolvedValue(record('receipt-10'));
+
+    await service.parseReceipt({ raw_text: 'Fresh Grocer 4.50 USD' });
+
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
+    expect(fx.rateToEur).toHaveBeenCalledWith('USD', '2026-08-12');
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
+    expect(repository.completeWithExtraction).toHaveBeenCalledWith(
+      'receipt-10',
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      null,
+      null,
+    );
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
+    expect(repository.markFailed).not.toHaveBeenCalled();
+  });
+
+  it('skips the rate lookup when there is no currency to convert from', async () => {
+    repository.createPending.mockResolvedValue('receipt-11');
+    claude.extractReceipt.mockResolvedValue({
+      ...extraction(),
+      currency: null,
+    });
+    repository.findById.mockResolvedValue(record('receipt-11'));
+
+    await service.parseReceipt({ raw_text: 'Fresh Grocer 4.50' });
+
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
+    expect(fx.rateToEur).not.toHaveBeenCalled();
   });
 
   it('marks the receipt as failed when extraction throws', async () => {
@@ -289,6 +351,7 @@ describe('ReceiptsService', () => {
       categories: [
         { category: 'Food', currency: 'EUR', receipts: 14, total: 210.4 },
       ],
+      months_eur: [],
     });
     claude.summarizeSpending.mockResolvedValue('You spent 133.20 EUR.');
 
@@ -312,6 +375,7 @@ describe('ReceiptsService', () => {
       to: '2026-03-31',
       months: [],
       categories: [],
+      months_eur: [],
     });
 
     const result = await service.insights({
@@ -372,6 +436,9 @@ function record(id: string) {
     receipt_date: '2026-08-12',
     total_amount: '4.50',
     currency: 'EUR',
+    total_eur: '4.50',
+    fx_rate: '1.00000000',
+    fx_date: '2026-08-12',
     payment_method: 'Card',
     confidence_score: '0.95',
     is_suspicious: false,
