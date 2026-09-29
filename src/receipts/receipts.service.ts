@@ -8,12 +8,15 @@ import {
   ExtractedReceipt,
   ImageMediaType,
 } from '../claude/claude.service';
+import { AskDto } from './dto/ask.dto';
+import { AskResponseDto } from './dto/ask-response.dto';
 import { InsightsQueryDto } from './dto/insights-query.dto';
 import { InsightsResponseDto } from './dto/insights-response.dto';
 import { ParsedReceiptResponseDto } from './dto/parsed-receipt-response.dto';
 import { ParseReceiptDto } from './dto/parse-receipt.dto';
 import { FxService } from './fx.service';
 import { assessHistory } from './history-anomalies';
+import { QueryLog, parseQueryArgs } from './receipt-query';
 import { ReceiptRecord, ReceiptsRepository } from './receipts.repository';
 import { isEmpty, renderSummary } from './spending-summary';
 
@@ -101,6 +104,35 @@ export class ReceiptsService {
       : await this.claude.summarizeSpending(renderSummary(summary));
 
     return { ...summary, summary: report };
+  }
+
+  /**
+   * Answers a question about the history. The model decides which queries to
+   * run; this is the side that runs them - validated first, so an argument the
+   * model got wrong goes back to it as an error rather than into the database.
+   * Every call is recorded, rejected ones included, and returned with the answer.
+   */
+  async ask(dto: AskDto): Promise<AskResponseDto> {
+    const queries: QueryLog[] = [];
+    const today = new Date().toISOString().slice(0, 10);
+
+    const answer = await this.claude.answerQuestion(
+      dto.question,
+      today,
+      async (input) => {
+        const parsed = parseQueryArgs(input);
+        if (!parsed.ok) {
+          queries.push({ input, error: parsed.error });
+          return { content: parsed.error, is_error: true };
+        }
+
+        const result = await this.repository.queryReceipts(parsed.args);
+        queries.push({ input, result });
+        return { content: JSON.stringify(result), is_error: false };
+      },
+    );
+
+    return { answer, queries };
   }
 
   /**

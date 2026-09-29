@@ -17,7 +17,7 @@ import {
  * Adding a bucket here is the fix for receipts that currently land in "Other" -
  * pets, gifts and donations are the obvious next candidates.
  */
-const CATEGORIES = [
+export const CATEGORIES = [
   'Food',
   'Home & Kitchen',
   'Household Supplies',
@@ -326,6 +326,96 @@ Write 2 to 4 short paragraphs of plain prose: what was spent, where it went, and
 const INSIGHTS_MAX_TOKENS = 1024;
 
 /**
+ * The one tool behind `POST /api/ask`. Its surface is the security boundary:
+ * the model picks these arguments from the question, never the SQL, and the
+ * arguments are validated again in `receipt-query.ts` before the parameterized
+ * query in `ReceiptsRepository.queryReceipts` sees them. Every property is
+ * required and nullable, as in `RECEIPT_JSON_SCHEMA`, so "no filter" is an
+ * explicit null rather than an omission.
+ */
+const QUERY_RECEIPTS_TOOL: Anthropic.Tool = {
+  name: 'query_receipts',
+  description:
+    'Totals of the completed receipts matching the filters, one row per currency: number of receipts, total in that currency, the same spending converted to EUR, and how many receipts had no EUR conversion. Each receipt is counted once, even when it has several categories.',
+  strict: true,
+  input_schema: {
+    type: 'object',
+    properties: {
+      from: {
+        type: 'string',
+        description: 'Start of the period, inclusive, as YYYY-MM-DD',
+      },
+      to: {
+        type: 'string',
+        description: 'End of the period, inclusive, as YYYY-MM-DD',
+      },
+      categories: {
+        anyOf: [
+          { type: 'array', items: { type: 'string', enum: CATEGORIES } },
+          { type: 'null' },
+        ],
+        description:
+          'Match receipts with at least one of these categories; null for any category',
+      },
+      merchant: {
+        ...nullableString,
+        description:
+          'Case-insensitive part of the merchant name; null for any merchant',
+      },
+      min_total: {
+        ...nullableNumber,
+        description: 'Smallest receipt total to include; null for no minimum',
+      },
+      max_total: {
+        ...nullableNumber,
+        description: 'Largest receipt total to include; null for no maximum',
+      },
+    },
+    required: [
+      'from',
+      'to',
+      'categories',
+      'merchant',
+      'min_total',
+      'max_total',
+    ],
+    additionalProperties: false,
+  },
+};
+
+/**
+ * The question is the user's, so the date the model needs for "the last three
+ * months" travels in the user turn, not here: this prefix stays constant.
+ */
+const ASK_SYSTEM_PROMPT = `You answer questions about someone's spending, using the query_receipts tool to look up their receipts.
+
+Rules:
+- Every figure in your answer must come from a tool result. Never estimate, extrapolate, or invent a number.
+- Resolve relative periods ("last month", "the last 3 months") against today's date, which is given in the message.
+- To compare periods, categories or merchants, call the tool once per side of the comparison.
+- Never add amounts in different currencies together. Report each currency separately. The total_eur figure is the same spending converted to EUR, not additional spending; mention it when more than one currency is involved, and say when some receipts could not be converted.
+- If nothing matched, say so plainly.
+- If the question is not about the person's spending, say you can only answer questions about their receipts, without calling the tool.
+
+Answer in the language of the question, in one or two short paragraphs of plain prose. No headings, no bullet lists, no markdown.`;
+
+/** Room for a tool call or a short answer, not a report. */
+const ASK_MAX_TOKENS = 1024;
+
+/**
+ * Model calls per question. A comparison needs two tool calls, which fit in
+ * one round, so four leaves room for a correction after an invalid argument
+ * without letting a confused model loop.
+ */
+const MAX_ASK_CALLS = 4;
+
+/** What a tool execution hands back to the loop in `answerQuestion`. */
+export interface ToolOutcome {
+  content: string;
+  is_error: boolean;
+}
+
+/**
  * `output_config.effort` is rejected with a 400 on the Haiku tier and on
  * Sonnet 4.5, so it can only be sent for models that accept it — Opus 4.5,
  * Sonnet 5 and everything above them. Matched by prefix rather than by an
@@ -436,13 +526,88 @@ export class ClaudeService {
       }),
     );
 
-    // As in `toExtraction`, a refusal and a truncation both arrive as HTTP 200.
+    return this.toProse(response, 'the insights report', INSIGHTS_MAX_TOKENS);
+  }
+
+  /**
+   * Answers a question about the receipt history with the `query_receipts`
+   * tool. The loop is written out rather than left to the SDK's tool runner,
+   * because it is the whole mechanism: the model answers `tool_use`, we run the
+   * query and send back a `tool_result`, and it writes the final answer from
+   * that.
+   *
+   * `runQuery` is supplied by the receipts module, which owns validation and
+   * the database; this module only knows the loop.
+   */
+  async answerQuestion(
+    question: string,
+    today: string,
+    runQuery: (input: unknown) => Promise<ToolOutcome>,
+  ): Promise<string> {
+    const messages: Anthropic.MessageParam[] = [
+      { role: 'user', content: `Today is ${today}.\n\n${question}` },
+    ];
+
+    for (let call = 0; call < MAX_ASK_CALLS; call++) {
+      const response = await this.request(() =>
+        this.client.messages.create({
+          model: this.model,
+          max_tokens: ASK_MAX_TOKENS,
+          system: ASK_SYSTEM_PROMPT,
+          tools: [QUERY_RECEIPTS_TOOL],
+          messages,
+          ...(this.supportsEffort
+            ? { output_config: { effort: 'low' as const } }
+            : {}),
+        }),
+      );
+
+      if (response.stop_reason !== 'tool_use') {
+        return this.toProse(response, 'an answer', ASK_MAX_TOKENS);
+      }
+
+      // The assistant turn goes back verbatim, tool_use blocks included: each
+      // tool_result must answer a tool_use id the API has seen. All results go
+      // in one user turn, since the model may ask for several at once.
+      messages.push({ role: 'assistant', content: response.content });
+      const results: Anthropic.ToolResultBlockParam[] = [];
+      for (const block of response.content) {
+        if (block.type !== 'tool_use') continue;
+        const outcome =
+          block.name === QUERY_RECEIPTS_TOOL.name
+            ? await runQuery(block.input)
+            : { content: `Unknown tool "${block.name}".`, is_error: true };
+        results.push({
+          type: 'tool_result',
+          tool_use_id: block.id,
+          content: outcome.content,
+          is_error: outcome.is_error,
+        });
+      }
+      messages.push({ role: 'user', content: results });
+    }
+
+    this.logger.error(
+      `Claude was still calling tools after ${MAX_ASK_CALLS} calls`,
+    );
+    throw new Error('Claude did not settle on an answer to this question');
+  }
+
+  /**
+   * The checks shared by the prose responses. As in `toExtraction`, a refusal
+   * and a truncation both arrive as HTTP 200.
+   */
+  private toProse(
+    response: Anthropic.Message,
+    what: string,
+    maxTokens: number,
+  ): string {
     if (response.stop_reason === 'refusal') {
       this.logger.error(
-        `Claude declined to write the insights report ` +
+        `Claude declined to write ${what} ` +
           `(category=${response.stop_details?.category ?? 'none'})`,
       );
-      throw new Error('Claude declined to write the insights report');
+      throw new Error(`Claude declined to write ${what}`);
     }
 
     const text = response.content
@@ -453,18 +618,18 @@ export class ClaudeService {
 
     if (!text) {
       this.logger.error(
-        `Claude returned no insights text ` +
+        `Claude returned no text for ${what} ` +
           `(stop_reason=${response.stop_reason ?? 'none'})`,
       );
-      throw new Error('Claude did not return an insights report');
+      throw new Error(`Claude did not return ${what}`);
     }
 
     // Truncation is reported rather than thrown: unlike a half-written JSON
-    // object, a report cut off mid-sentence is still readable, and the caller
-    // is better served by the paragraphs that did arrive.
+    // object, prose cut off mid-sentence is still readable, and the caller is
+    // better served by what did arrive.
     if (response.stop_reason === 'max_tokens') {
       this.logger.warn(
-        `Claude hit the ${INSIGHTS_MAX_TOKENS}-token ceiling while writing the insights report`,
+        `Claude hit the ${maxTokens}-token ceiling while writing ${what}`,
       );
     }
 
