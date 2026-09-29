@@ -148,6 +148,7 @@ When an answer looks off, check `queries[].input` first. The usual cause is the 
 |---|---|
 | 400 | `question` missing, empty, not a string, or over 500 characters. The body lists the reason in `message` |
 | 429 / 503 | Claude API rate limit or overload. Safe to retry |
+| 502 / 504 | Claude API unreachable, timed out, or returned an unexpected error. Safe to retry |
 | 500 | The model refused, kept calling tools without settling on an answer, or the service is misconfigured (bad API key or model id) |
 
 Example 400:

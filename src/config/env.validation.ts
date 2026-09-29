@@ -14,7 +14,7 @@ export const validateEnv = createValidateEnv({
     'POSTGRES_DB',
     'ANTHROPIC_API_KEY',
     'ANTHROPIC_MODEL',
-    'FX_API_URL',
+    'FX_API_URL_TEMPLATE',
   ],
   numberKeys: ['PORT', 'POSTGRES_PORT', 'FX_API_TIMEOUT_MS'],
   booleanKeys: [],

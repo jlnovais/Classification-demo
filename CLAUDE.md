@@ -22,11 +22,11 @@ Setup: copy `.env.template` to `.env`. `POSTGRES_HOST`, `POSTGRES_USER`, `POSTGR
 
 ## Architecture
 
-Nest app with three modules under `src/`: `database` (raw `pg`), `claude` (the model call), `receipts` (HTTP + persistence). Four endpoints: `POST /api/parse-receipt` (JSON `raw_text`), `POST /api/parse-receipt-pdf` (multipart `file`) and `POST /api/parse-receipt-image` (multipart `file`, a phone photo), all three returning the same `ParsedReceiptResponseDto`, plus `GET /api/insights` and `POST /api/ask` (see below). Swagger at `/docs`.
+Nest app with three modules under `src/`: `database` (raw `pg`), `claude` (the model call), `receipts` (HTTP + persistence). Five endpoints: `POST /api/parse-receipt` (JSON `raw_text`), `POST /api/parse-receipt-pdf` (multipart `file`) and `POST /api/parse-receipt-image` (multipart `file`, a phone photo), all three returning the same `ParsedReceiptResponseDto`, plus `GET /api/insights` and `POST /api/ask` (see below). Swagger at `/docs`.
 
 Request flow for all three extraction endpoints: `ReceiptsRepository` inserts a `pending` row (recording the exact system prompt in `prompt_used`) → `ClaudeService` extracts → the history checks and the EUR rate lookup run in parallel → the row is completed and categories linked, or marked `failed`. `ReceiptsService.extractInto` is the shared tail of every path, so the endpoints cannot diverge on persistence or failure bookkeeping.
 
-**No ORM and no migration tool.** `DatabaseService.migrate()` runs raw SQL on `onModuleInit`: a `CREATE TABLE IF NOT EXISTS` block for the original schema, then a second block of idempotent `ALTER`s for everything added since. `CREATE TABLE IF NOT EXISTS` is a no-op on an existing database, so **any new column or constraint must go in the ALTER block as an idempotent statement**, not into the CREATE block. All queries are parameterized SQL in `receipts.repository.ts`.
+**No ORM and no migration tool.** `DatabaseService.migrate()` runs raw SQL on `onModuleInit`: a `CREATE TABLE IF NOT EXISTS` block for the original schema, then a second block of idempotent `ALTER`s for everything added since. `CREATE TABLE IF NOT EXISTS` is a no-op on an existing database, so **any new column or constraint must go in the ALTER block as an idempotent statement**, not into the CREATE block. All queries are parameterized SQL in `receipts.repository.ts`. The merchant identity column `merchant_vatNumber` was created unquoted, so PostgreSQL stores it as `merchant_vatnumber` — every SELECT of it needs `AS "merchant_vatNumber"`.
 
 ### Anomaly checks
 
