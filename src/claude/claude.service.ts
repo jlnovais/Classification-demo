@@ -416,6 +416,19 @@ export interface ToolOutcome {
 }
 
 /**
+ * What one model call spent. The model travels with the tokens because cost is
+ * per model and `ANTHROPIC_MODEL` can change between calls. Tokens rather than
+ * money: prices change, token counts do not.
+ */
+export interface ClaudeUsage {
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_input_tokens: number;
+  cache_creation_input_tokens: number;
+}
+
+/**
  * `output_config.effort` is rejected with a 400 on the Haiku tier and on
  * Sonnet 4.5, so it can only be sent for models that accept it — Opus 4.5,
  * Sonnet 5 and everything above them. Matched by prefix rather than by an
@@ -454,9 +467,17 @@ export class ClaudeService {
     return IMAGE_SYSTEM_PROMPT;
   }
 
-  async extractReceipt(rawText: string): Promise<ExtractedReceipt> {
+  /**
+   * Every public call takes an optional `calls` array and appends one
+   * `ClaudeUsage` per model call to it, so the caller can record what was spent
+   * without this module knowing about the database.
+   */
+  async extractReceipt(
+    rawText: string,
+    calls: ClaudeUsage[] = [],
+  ): Promise<ExtractedReceipt> {
     return this.toExtraction(
-      await this.requestExtraction(SYSTEM_PROMPT, rawText),
+      await this.requestExtraction(SYSTEM_PROMPT, rawText, calls),
     );
   }
 
@@ -466,19 +487,26 @@ export class ClaudeService {
    * in play instead of discarding them at a text-extraction step. The document
    * block goes before the text block, which is the order the API expects.
    */
-  async extractReceiptFromPdf(pdfBase64: string): Promise<ExtractedReceipt> {
+  async extractReceiptFromPdf(
+    pdfBase64: string,
+    calls: ClaudeUsage[] = [],
+  ): Promise<ExtractedReceipt> {
     return this.toExtraction(
-      await this.requestExtraction(PDF_SYSTEM_PROMPT, [
-        {
-          type: 'document',
-          source: {
-            type: 'base64',
-            media_type: 'application/pdf',
-            data: pdfBase64,
+      await this.requestExtraction(
+        PDF_SYSTEM_PROMPT,
+        [
+          {
+            type: 'document',
+            source: {
+              type: 'base64',
+              media_type: 'application/pdf',
+              data: pdfBase64,
+            },
           },
-        },
-        { type: 'text', text: PDF_USER_INSTRUCTION },
-      ]),
+          { type: 'text', text: PDF_USER_INSTRUCTION },
+        ],
+        calls,
+      ),
     );
   }
 
@@ -495,15 +523,24 @@ export class ClaudeService {
   async extractReceiptFromImage(
     imageBase64: string,
     mediaType: ImageMediaType,
+    calls: ClaudeUsage[] = [],
   ): Promise<ExtractedReceipt> {
     return this.toExtraction(
-      await this.requestExtraction(IMAGE_SYSTEM_PROMPT, [
-        {
-          type: 'image',
-          source: { type: 'base64', media_type: mediaType, data: imageBase64 },
-        },
-        { type: 'text', text: IMAGE_USER_INSTRUCTION },
-      ]),
+      await this.requestExtraction(
+        IMAGE_SYSTEM_PROMPT,
+        [
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: mediaType,
+              data: imageBase64,
+            },
+          },
+          { type: 'text', text: IMAGE_USER_INSTRUCTION },
+        ],
+        calls,
+      ),
     );
   }
 
@@ -513,17 +550,22 @@ export class ClaudeService {
    * `messages.create` is the whole call. The same error mapping as the
    * extraction paths, so a rate limit surfaces identically on every endpoint.
    */
-  async summarizeSpending(summaryBlock: string): Promise<string> {
-    const response = await this.request(() =>
-      this.client.messages.create({
-        model: this.model,
-        max_tokens: INSIGHTS_MAX_TOKENS,
-        system: INSIGHTS_SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: summaryBlock }],
-        ...(this.supportsEffort
-          ? { output_config: { effort: 'low' as const } }
-          : {}),
-      }),
+  async summarizeSpending(
+    summaryBlock: string,
+    calls: ClaudeUsage[] = [],
+  ): Promise<string> {
+    const response = await this.request(
+      () =>
+        this.client.messages.create({
+          model: this.model,
+          max_tokens: INSIGHTS_MAX_TOKENS,
+          system: INSIGHTS_SYSTEM_PROMPT,
+          messages: [{ role: 'user', content: summaryBlock }],
+          ...(this.supportsEffort
+            ? { output_config: { effort: 'low' as const } }
+            : {}),
+        }),
+      calls,
     );
 
     return this.toProse(response, 'the insights report', INSIGHTS_MAX_TOKENS);
@@ -543,23 +585,26 @@ export class ClaudeService {
     question: string,
     today: string,
     runQuery: (input: unknown) => Promise<ToolOutcome>,
+    calls: ClaudeUsage[] = [],
   ): Promise<string> {
     const messages: Anthropic.MessageParam[] = [
       { role: 'user', content: `Today is ${today}.\n\n${question}` },
     ];
 
     for (let call = 0; call < MAX_ASK_CALLS; call++) {
-      const response = await this.request(() =>
-        this.client.messages.create({
-          model: this.model,
-          max_tokens: ASK_MAX_TOKENS,
-          system: ASK_SYSTEM_PROMPT,
-          tools: [QUERY_RECEIPTS_TOOL],
-          messages,
-          ...(this.supportsEffort
-            ? { output_config: { effort: 'low' as const } }
-            : {}),
-        }),
+      const response = await this.request(
+        () =>
+          this.client.messages.create({
+            model: this.model,
+            max_tokens: ASK_MAX_TOKENS,
+            system: ASK_SYSTEM_PROMPT,
+            tools: [QUERY_RECEIPTS_TOOL],
+            messages,
+            ...(this.supportsEffort
+              ? { output_config: { effort: 'low' as const } }
+              : {}),
+          }),
+        calls,
       );
 
       if (response.stop_reason !== 'tool_use') {
@@ -694,47 +739,48 @@ export class ClaudeService {
   private async requestExtraction(
     systemPrompt: string,
     content: Anthropic.MessageParam['content'],
+    calls: ClaudeUsage[],
   ) {
-    const response = this.request(() =>
-      this.client.messages.parse({
-        model: this.model,
-        max_tokens: MAX_TOKENS,
-        system: systemPrompt,
-        messages: [{ role: 'user', content }],
-        output_config: {
-          ...(this.supportsEffort ? { effort: 'low' as const } : {}),
-          format: RECEIPT_OUTPUT_FORMAT,
-        },
-      }),
+    return this.request(
+      () =>
+        this.client.messages.parse({
+          model: this.model,
+          max_tokens: MAX_TOKENS,
+          system: systemPrompt,
+          messages: [{ role: 'user', content }],
+          output_config: {
+            ...(this.supportsEffort ? { effort: 'low' as const } : {}),
+            format: RECEIPT_OUTPUT_FORMAT,
+          },
+        }),
+      calls,
     );
-
-    console.log('[LOG] response.content', (await response).content);
-
-    return response;
-
-    /*
-    return this.request(() =>
-      this.client.messages.parse({
-        model: this.model,
-        max_tokens: MAX_TOKENS,
-        system: systemPrompt,
-        messages: [{ role: 'user', content }],
-        output_config: {
-          ...(this.supportsEffort ? { effort: 'low' as const } : {}),
-          format: RECEIPT_OUTPUT_FORMAT,
-        },
-      }),
-    );
-    */
   }
 
   /**
    * The single place Claude API failures are mapped, so no caller - the two
    * extraction paths or the insights report - can diverge on error handling.
+   *
+   * Also the single place usage is recorded. It is recorded as soon as the API
+   * answers - before `toExtraction` or `toProse` can reject a truncation or a
+   * refusal - because those calls were billed too. A call that failed at the
+   * HTTP level has no usage to record.
    */
-  private async request<T>(send: () => Promise<T>): Promise<T> {
+  private async request<T extends { usage: Anthropic.Usage }>(
+    send: () => Promise<T>,
+    calls: ClaudeUsage[],
+  ): Promise<T> {
     try {
-      return await send();
+      const response = await send();
+      calls.push({
+        model: this.model,
+        input_tokens: response.usage.input_tokens,
+        output_tokens: response.usage.output_tokens,
+        cache_read_input_tokens: response.usage.cache_read_input_tokens ?? 0,
+        cache_creation_input_tokens:
+          response.usage.cache_creation_input_tokens ?? 0,
+      });
+      return response;
     } catch (error) {
       const details = describeClaudeError(error);
       if (!details) {

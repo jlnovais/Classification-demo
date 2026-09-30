@@ -105,6 +105,30 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       ALTER TABLE receipts ADD COLUMN IF NOT EXISTS fx_date DATE;
     `);
 
+    // One row per model call, for every endpoint - /insights and /ask spend
+    // tokens too but have no receipt row, hence a table rather than columns.
+    // A new table, so CREATE ... IF NOT EXISTS is the idempotent form; any
+    // column added to it later still goes in an ALTER. receipt_id is SET NULL
+    // on delete: deleting a receipt does not un-spend what its calls cost.
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS claude_calls (
+        id BIGSERIAL PRIMARY KEY,
+        receipt_id UUID REFERENCES receipts(id) ON DELETE SET NULL,
+        endpoint VARCHAR(10) NOT NULL,
+        model TEXT NOT NULL,
+        input_tokens INTEGER NOT NULL,
+        output_tokens INTEGER NOT NULL,
+        cache_read_input_tokens INTEGER NOT NULL,
+        cache_creation_input_tokens INTEGER NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+
+      CREATE INDEX IF NOT EXISTS claude_calls_receipt_idx
+        ON claude_calls (receipt_id);
+      CREATE INDEX IF NOT EXISTS claude_calls_created_idx
+        ON claude_calls (created_at);
+    `);
+
     // Indexes for the two history queries in `receipts.repository.ts`, which
     // run on every parse and would otherwise scan the whole table as it grows.
     await this.pool.query(`

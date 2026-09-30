@@ -120,12 +120,14 @@ Uma foto ou PDF com vários talões passa a devolver N extrações em vez de uma
 - **Conceito de IA:** Segmentação e saída estruturada em array.
 - **O que aprendes:** Que mudar a cardinalidade da resposta mexe em tudo a jusante — schema, persistência (uma linha pendente passa a N), verificações de duplicados entre recibos do mesmo upload, e o eval, que tem de emparelhar recibos esperados com extraídos.
 
-## 17. Registo de Tokens e Custo por Pedido
+## 17. Registo de Tokens e Custo por Pedido — ✅ feito
 
 Guardar o `usage` de cada chamada (tokens de input, output e cache) na linha do recibo, e agregá-lo.
 
 - **Conceito de IA:** Observabilidade de inferência.
 - **O que aprendes:** Que o #11 só se prova com isto — sem registo, a poupança do cache e do batch é assumida, não medida. E permite ao `/insights` reportar também quanto custa a própria IA por período.
+- **Como ficou implementado:** numa **tabela própria**, `claude_calls`, e não em colunas do recibo — o `/insights` e o `/ask` também gastam tokens e não têm linha de recibo onde os pôr. Uma linha por chamada ao modelo: `endpoint` (`text`/`pdf`/`image`/`insights`/`ask`), `model`, os quatro contadores do `response.usage` e `receipt_id`, chave estrangeira para `receipts` nas três vias de extração e `null` nas outras duas (`ON DELETE SET NULL`: apagar um recibo não desfaz o que se gastou). O `/ask` escreve uma linha por volta do ciclo, porque cada volta é faturada. O `ClaudeModule` continua sem conhecer a base de dados (o eval constrói-o sem ela): cada método público do `ClaudeService` aceita um array `calls` opcional e o `request()` — por onde passam todas as chamadas — empurra lá o `usage` **logo que a API responde**, antes de `toExtraction`/`toProse` rejeitarem uma truncagem ou uma recusa, que chegam como 200 e foram pagas. O `ReceiptsService` é dono do array e escreve-o num `finally`, pelo que um recibo `failed` fica com os seus tokens ligados a ele. Uma falha a escrever o registo é registada no log e engolida: é observabilidade, e não pode fazer falhar um recibo que foi extraído e gravado.
+  Guardam-se **tokens, não dinheiro**. Os preços (USD por milhão de tokens, por prefixo do id do modelo, para os ids com data também baterem) estão em `MODEL_PRICES`, em `src/receipts/usage-cost.ts`, e aplicam-se na leitura: uma mudança de preço é uma edição, não um backfill — com a contrapartida de um período antigo ser avaliado aos preços de hoje. Um modelo sem preço conhecido aparece com custo `null` e é contado em `unpriced_calls`, nunca adivinhado. O `/insights` devolve `ai_usage` (por endpoint e modelo, e o total) ao lado dos agregados, mas **não o mete no bloco que o modelo lê**: o relatório é sobre os gastos do utilizador, e um valor em USD ao lado das linhas em EUR é mais uma coisa para somar mal. O período do `ai_usage` é o da **chamada** (`created_at`), não a data do recibo. Com isto o #11 passa a ser mensurável: o `cache_read_input_tokens` de cada chamada fica guardado.
 
 ## 18. Servidor MCP sobre os Recibos
 

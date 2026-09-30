@@ -1,6 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
-import { ExtractedReceipt } from '../claude/claude.service';
+import {
+  ClaudeUsage,
+  ExtractedReceipt,
+  ReceiptSource,
+} from '../claude/claude.service';
 import { FxRate } from './fx.service';
 import { CurrencyTotal, ReceiptQuery } from './receipt-query';
 import {
@@ -15,6 +19,7 @@ import {
   MonthTotal,
   SpendingSummary,
 } from './spending-summary';
+import { UsageRow } from './usage-cost';
 
 export interface ReceiptRecord {
   id: string;
@@ -41,6 +46,9 @@ export interface ReceiptRecord {
   created_at: Date;
   categories: string[];
 }
+
+/** The value of `claude_calls.endpoint`: which feature made the call. */
+export type ClaudeEndpoint = ReceiptSource | 'insights' | 'ask';
 
 @Injectable()
 export class ReceiptsRepository {
@@ -142,6 +150,38 @@ export class ReceiptsRepository {
     );
 
     await this.attachCategories(receiptId, extracted.categories);
+  }
+
+  /**
+   * One `claude_calls` row per entry. `receiptId` is null for the calls that
+   * belong to no receipt (/insights, /ask). One fixed statement whatever the
+   * count: the calls travel as parallel arrays and `unnest` turns them into
+   * rows, so nothing is assembled.
+   */
+  async recordCalls(
+    endpoint: ClaudeEndpoint,
+    receiptId: string | null,
+    calls: readonly ClaudeUsage[],
+  ): Promise<void> {
+    if (calls.length === 0) return;
+
+    await this.db.pool.query(
+      `INSERT INTO claude_calls (
+        receipt_id, endpoint, model, input_tokens, output_tokens,
+        cache_read_input_tokens, cache_creation_input_tokens
+      )
+      SELECT $1::uuid, $2, *
+      FROM unnest($3::text[], $4::int[], $5::int[], $6::int[], $7::int[])`,
+      [
+        receiptId,
+        endpoint,
+        calls.map((call) => call.model),
+        calls.map((call) => call.input_tokens),
+        calls.map((call) => call.output_tokens),
+        calls.map((call) => call.cache_read_input_tokens),
+        calls.map((call) => call.cache_creation_input_tokens),
+      ],
+    );
   }
 
   async markFailed(receiptId: string): Promise<void> {
@@ -284,6 +324,40 @@ export class ReceiptsRepository {
     ]);
 
     return { from, to, categories, months, months_eur };
+  }
+
+  /**
+   * The `claude_calls` ledger summed per feature and model. The period is when
+   * the call was *made*, not the receipt's date - a March receipt parsed in
+   * April is April's cost. `sum` of an INTEGER is a BIGINT, which `pg` returns
+   * as a string, hence the coercion.
+   */
+  async usageSummary(from: string, to: string): Promise<UsageRow[]> {
+    const result = await this.db.pool.query<Record<keyof UsageRow, string>>(
+      `SELECT
+        endpoint,
+        model,
+        count(*) AS calls,
+        sum(input_tokens) AS input_tokens,
+        sum(output_tokens) AS output_tokens,
+        sum(cache_read_input_tokens) AS cache_read_input_tokens,
+        sum(cache_creation_input_tokens) AS cache_creation_input_tokens
+      FROM claude_calls
+      WHERE created_at::date BETWEEN $1::date AND $2::date
+      GROUP BY endpoint, model
+      ORDER BY endpoint, model`,
+      [from, to],
+    );
+
+    return result.rows.map((row) => ({
+      endpoint: row.endpoint,
+      model: row.model,
+      calls: Number(row.calls),
+      input_tokens: Number(row.input_tokens),
+      output_tokens: Number(row.output_tokens),
+      cache_read_input_tokens: Number(row.cache_read_input_tokens),
+      cache_creation_input_tokens: Number(row.cache_creation_input_tokens),
+    }));
   }
 
   /**

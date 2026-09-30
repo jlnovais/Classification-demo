@@ -34,6 +34,7 @@ describe('ReceiptsService', () => {
             createPendingUpload: jest.fn(),
             completeWithExtraction: jest.fn(),
             markFailed: jest.fn(),
+            recordCalls: jest.fn(),
             findById: jest.fn(),
             // Defaulted to an empty history so the cases that are not about the
             // history checks read as if the database were empty.
@@ -41,6 +42,7 @@ describe('ReceiptsService', () => {
               .fn()
               .mockResolvedValue({ duplicate: null, spreads: [] }),
             spendingSummary: jest.fn(),
+            usageSummary: jest.fn().mockResolvedValue([]),
             queryReceipts: jest.fn(),
           },
         },
@@ -254,6 +256,38 @@ describe('ReceiptsService', () => {
     expect(repository.markFailed).toHaveBeenCalledWith('receipt-2');
   });
 
+  it('records the tokens of an extraction that failed after the API answered', async () => {
+    repository.createPending.mockResolvedValue('receipt-12');
+    // Stands in for a truncated response: billed, then rejected by toExtraction.
+    claude.extractReceipt.mockImplementation((_text, calls = []) => {
+      calls.push(usage());
+      return Promise.reject(new Error('ran out of output tokens'));
+    });
+
+    await expect(service.parseReceipt({ raw_text: 'long' })).rejects.toThrow(
+      'ran out of output tokens',
+    );
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
+    expect(repository.markFailed).toHaveBeenCalledWith('receipt-12');
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
+    expect(repository.recordCalls).toHaveBeenCalledWith('text', 'receipt-12', [
+      usage(),
+    ]);
+  });
+
+  it('still returns the receipt when the usage ledger cannot be written', async () => {
+    repository.createPending.mockResolvedValue('receipt-13');
+    claude.extractReceipt.mockResolvedValue(extraction());
+    repository.findById.mockResolvedValue(record('receipt-13'));
+    repository.recordCalls.mockRejectedValue(new Error('ledger down'));
+
+    const result = await service.parseReceipt({ raw_text: 'Fresh Grocer' });
+
+    expect(result.id).toBe('receipt-13');
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
+    expect(repository.markFailed).not.toHaveBeenCalled();
+  });
+
   it('sends an uploaded PDF to Claude and returns the same response shape', async () => {
     repository.createPendingUpload.mockResolvedValue('receipt-3');
     claude.extractReceiptFromPdf.mockResolvedValue(extraction());
@@ -276,6 +310,7 @@ describe('ReceiptsService', () => {
     // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
     expect(claude.extractReceiptFromPdf).toHaveBeenCalledWith(
       Buffer.from('%PDF-1.7 fake receipt').toString('base64'),
+      expect.any(Array),
     );
     // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
     expect(claude.extractReceipt).not.toHaveBeenCalled();
@@ -321,6 +356,7 @@ describe('ReceiptsService', () => {
     expect(claude.extractReceiptFromImage).toHaveBeenCalledWith(
       Buffer.from('fake jpeg bytes').toString('base64'),
       'image/jpeg',
+      expect.any(Array),
     );
     // Everything after the extraction is the shared tail, so a photo comes back
     // in exactly the shape the other two endpoints return.
@@ -366,6 +402,7 @@ describe('ReceiptsService', () => {
     // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
     expect(claude.summarizeSpending).toHaveBeenCalledWith(
       expect.stringContaining('- 2026-01: 133.20 EUR over 9 receipts'),
+      expect.any(Array),
     );
     expect(result.summary).toBe('You spent 133.20 EUR.');
     expect(result.months).toHaveLength(1);
@@ -388,6 +425,35 @@ describe('ReceiptsService', () => {
     // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
     expect(claude.summarizeSpending).not.toHaveBeenCalled();
     expect(result.summary).toContain('nothing to report');
+  });
+
+  it('returns what the AI cost alongside the report but never shows it to the model', async () => {
+    repository.spendingSummary.mockResolvedValue({
+      from: '2026-01-01',
+      to: '2026-03-31',
+      months: [
+        { month: '2026-01', currency: 'EUR', receipts: 9, total: 133.2 },
+      ],
+      categories: [],
+      months_eur: [],
+    });
+    repository.usageSummary.mockResolvedValue([
+      { endpoint: 'text', calls: 9, ...usage(), output_tokens: 20_000 },
+    ]);
+    claude.summarizeSpending.mockResolvedValue('You spent 133.20 EUR.');
+
+    const result = await service.insights({
+      from: '2026-01-01',
+      to: '2026-03-31',
+    });
+
+    // Haiku: 1800 input at $1/M + 20,000 output at $5/M.
+    expect(result.ai_usage.total_cost_usd).toBe(0.1018);
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
+    expect(claude.summarizeSpending).toHaveBeenCalledWith(
+      expect.not.stringContaining('USD'),
+      expect.any(Array),
+    );
   });
 
   it('rejects a reversed period before querying anything', async () => {
@@ -470,6 +536,17 @@ function extraction() {
     anomaly_evidence: 'A weekday grocery run at 4.50 EUR; nothing is odd.',
     is_suspicious: false,
     flag_reason: null,
+  };
+}
+
+/** What one model call spent, as `ClaudeService` reports it. */
+function usage() {
+  return {
+    model: 'claude-haiku-4-5',
+    input_tokens: 1800,
+    output_tokens: 4096,
+    cache_read_input_tokens: 0,
+    cache_creation_input_tokens: 0,
   };
 }
 

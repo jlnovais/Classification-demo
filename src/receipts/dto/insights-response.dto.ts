@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { CategoryTotal, MonthEurTotal, MonthTotal } from '../spending-summary';
+import { AiUsage } from '../usage-cost';
 
 /**
  * The aggregates are returned alongside the prose on purpose: they are what the
@@ -45,4 +46,26 @@ export class InsightsResponseDto {
     ],
   })
   months_eur: MonthEurTotal[];
+
+  @ApiProperty({
+    description:
+      'What the model calls made in the period cost, per endpoint and model, from the claude_calls ledger. The period is when each call was made, not the receipt date. Priced in USD at current rates when read; a model without a known price has a null cost and is counted in unpriced_calls. Not shown to the model and not part of the report.',
+    example: {
+      lines: [
+        {
+          endpoint: 'text',
+          model: 'claude-haiku-4-5',
+          calls: 27,
+          input_tokens: 48600,
+          output_tokens: 21400,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cost_usd: 0.1556,
+        },
+      ],
+      total_cost_usd: 0.1556,
+      unpriced_calls: 0,
+    },
+  })
+  ai_usage: AiUsage;
 }
