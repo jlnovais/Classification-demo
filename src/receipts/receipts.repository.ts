@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import {
@@ -19,7 +20,7 @@ import {
   MonthTotal,
   SpendingSummary,
 } from './spending-summary';
-import { UsageRow } from './usage-cost';
+import { ModelPrice, UsageLine } from './usage-cost';
 
 export interface ReceiptRecord {
   id: string;
@@ -167,10 +168,10 @@ export class ReceiptsRepository {
 
     await this.db.pool.query(
       `INSERT INTO claude_calls (
-        receipt_id, endpoint, model, input_tokens, output_tokens,
+        request_id, receipt_id, endpoint, model, input_tokens, output_tokens,
         cache_read_input_tokens, cache_creation_input_tokens
       )
-      SELECT $1::uuid, $2, *
+      SELECT $8::uuid, $1::uuid, $2, *
       FROM unnest($3::text[], $4::int[], $5::int[], $6::int[], $7::int[])`,
       [
         receiptId,
@@ -180,6 +181,10 @@ export class ReceiptsRepository {
         calls.map((call) => call.output_tokens),
         calls.map((call) => call.cache_read_input_tokens),
         calls.map((call) => call.cache_creation_input_tokens),
+        // One per recordCalls, which each endpoint calls exactly once.
+        // Generated here, not gen_random_uuid() in the SELECT, which would
+        // run once per row.
+        randomUUID(),
       ],
     );
   }
@@ -327,25 +332,46 @@ export class ReceiptsRepository {
   }
 
   /**
-   * The `claude_calls` ledger summed per feature and model. The period is when
-   * the call was *made*, not the receipt's date - a March receipt parsed in
-   * April is April's cost. `sum` of an INTEGER is a BIGINT, which `pg` returns
-   * as a string, hence the coercion.
+   * The `claude_calls` ledger summed and priced per feature and model. The
+   * period is when the call was *made*, not the receipt's date - a March
+   * receipt parsed in April is April's cost.
+   *
+   * Each call is priced at its own `created_at` and multiplied *before* the
+   * sum, so a price change inside the period splits a line correctly. The
+   * LEFT JOIN keeps calls with no price: `p` is null for them, so they drop
+   * out of the cost sum and are counted instead. `sum` of an INTEGER is a
+   * BIGINT and of a NUMERIC a NUMERIC, both strings from `pg`, hence the
+   * coercion.
    */
-  async usageSummary(from: string, to: string): Promise<UsageRow[]> {
-    const result = await this.db.pool.query<Record<keyof UsageRow, string>>(
+  async usageSummary(from: string, to: string): Promise<UsageLine[]> {
+    const result = await this.db.pool.query<
+      Record<Exclude<keyof UsageLine, 'cost_usd'>, string> & {
+        cost_usd: string | null;
+      }
+    >(
       `SELECT
-        endpoint,
-        model,
+        c.endpoint,
+        c.model,
         count(*) AS calls,
-        sum(input_tokens) AS input_tokens,
-        sum(output_tokens) AS output_tokens,
-        sum(cache_read_input_tokens) AS cache_read_input_tokens,
-        sum(cache_creation_input_tokens) AS cache_creation_input_tokens
-      FROM claude_calls
-      WHERE created_at::date BETWEEN $1::date AND $2::date
-      GROUP BY endpoint, model
-      ORDER BY endpoint, model`,
+        sum(c.input_tokens) AS input_tokens,
+        sum(c.output_tokens) AS output_tokens,
+        sum(c.cache_read_input_tokens) AS cache_read_input_tokens,
+        sum(c.cache_creation_input_tokens) AS cache_creation_input_tokens,
+        round(
+          sum(
+            c.input_tokens * p.input
+            + c.output_tokens * p.output
+            + c.cache_read_input_tokens * p.cache_read
+            + c.cache_creation_input_tokens * p.cache_write
+          ) / 1000000,
+          6
+        ) AS cost_usd,
+        count(*) FILTER (WHERE p.model_prefix IS NULL) AS unpriced_calls
+      FROM claude_calls c
+      LEFT JOIN LATERAL model_price_at(c.model, c.created_at) p ON true
+      WHERE c.created_at::date BETWEEN $1::date AND $2::date
+      GROUP BY c.endpoint, c.model
+      ORDER BY c.endpoint, c.model`,
       [from, to],
     );
 
@@ -357,7 +383,34 @@ export class ReceiptsRepository {
       output_tokens: Number(row.output_tokens),
       cache_read_input_tokens: Number(row.cache_read_input_tokens),
       cache_creation_input_tokens: Number(row.cache_creation_input_tokens),
+      cost_usd: row.cost_usd === null ? null : Number(row.cost_usd),
+      unpriced_calls: Number(row.unpriced_calls),
     }));
+  }
+
+  /**
+   * The price in effect for `model` at `at`, via `model_price_at`. Null when
+   * the model is unknown or `at` predates its first price. NUMERIC comes back
+   * from `pg` as a string, hence the coercion.
+   */
+  async modelPriceAt(
+    model: string,
+    at: Date | string,
+  ): Promise<ModelPrice | null> {
+    const result = await this.db.pool.query<Record<keyof ModelPrice, string>>(
+      `SELECT input, output, cache_read, cache_write
+      FROM model_price_at($1, $2::timestamptz)`,
+      [model, at],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+
+    return {
+      input: Number(row.input),
+      output: Number(row.output),
+      cache_read: Number(row.cache_read),
+      cache_write: Number(row.cache_write),
+    };
   }
 
   /**

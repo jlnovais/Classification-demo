@@ -127,6 +127,50 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         ON claude_calls (receipt_id);
       CREATE INDEX IF NOT EXISTS claude_calls_created_idx
         ON claude_calls (created_at);
+
+      -- Shared by every row one endpoint request wrote (/ask writes one per
+      -- round). Null on rows recorded before it existed.
+      ALTER TABLE claude_calls ADD COLUMN IF NOT EXISTS request_id UUID;
+    `);
+
+    // USD per million tokens, matched to claude_calls.model by prefix. A price
+    // change is a new row with a later valid_from, never an UPDATE, so a past
+    // call keeps the price that applied when it was made.
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS model_prices (
+        model_prefix TEXT NOT NULL,
+        valid_from DATE NOT NULL,
+        input NUMERIC(10, 4) NOT NULL,
+        output NUMERIC(10, 4) NOT NULL,
+        cache_read NUMERIC(10, 4) NOT NULL,
+        cache_write NUMERIC(10, 4) NOT NULL,
+        PRIMARY KEY (model_prefix, valid_from)
+      );
+
+      -- The seed predates the ledger so every recorded call finds a price.
+      -- ON CONFLICT keeps it idempotent; a seed row deleted by hand comes back
+      -- on the next boot.
+      INSERT INTO model_prices
+        (model_prefix, valid_from, input, output, cache_read, cache_write)
+      VALUES
+        ('claude-haiku-4-5', '2000-01-01', 1, 5, 0.1, 1.25),
+        ('claude-sonnet-5-5', '2000-01-01', 2, 10, 0.2, 2.5),
+        ('claude-opus-5-5', '2000-01-01', 4, 20, 0.2, 5),
+        ('claude-fable-5-1', '2000-01-01', 10, 50, 0.25, 12.5)
+      ON CONFLICT (model_prefix, valid_from) DO NOTHING;
+
+      -- The price in effect for a model at a moment: the longest matching
+      -- prefix, then the latest valid_from not after it. No row when the
+      -- model is unknown or the moment predates its first price. starts_with
+      -- rather than LIKE, whose _ wildcard would match any character.
+      CREATE OR REPLACE FUNCTION model_price_at(p_model TEXT, p_at TIMESTAMPTZ)
+      RETURNS SETOF model_prices
+      LANGUAGE sql STABLE AS $$
+        SELECT * FROM model_prices
+        WHERE starts_with(p_model, model_prefix) AND valid_from <= p_at
+        ORDER BY length(model_prefix) DESC, valid_from DESC
+        LIMIT 1
+      $$;
     `);
 
     // Indexes for the two history queries in `receipts.repository.ts`, which

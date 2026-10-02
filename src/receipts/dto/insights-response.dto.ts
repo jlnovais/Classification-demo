@@ -49,7 +49,7 @@ export class InsightsResponseDto {
 
   @ApiProperty({
     description:
-      'What the model calls made in the period cost, per endpoint and model, from the claude_calls ledger. The period is when each call was made, not the receipt date. Priced in USD at current rates when read; a model without a known price has a null cost and is counted in unpriced_calls. Not shown to the model and not part of the report.',
+      'What the model calls made in the period cost, per endpoint and model, from the claude_calls ledger. The period is when each call was made, not the receipt date. Priced in USD when read, each call at the model_prices rate in effect when it was made; calls with no price are left out of cost_usd and counted in unpriced_calls (cost_usd is null when no call on the line had a price). Not shown to the model and not part of the report.',
     example: {
       lines: [
         {
@@ -61,6 +61,7 @@ export class InsightsResponseDto {
           cache_read_input_tokens: 0,
           cache_creation_input_tokens: 0,
           cost_usd: 0.1556,
+          unpriced_calls: 0,
         },
       ],
       total_cost_usd: 0.1556,

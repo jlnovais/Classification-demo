@@ -438,7 +438,14 @@ describe('ReceiptsService', () => {
       months_eur: [],
     });
     repository.usageSummary.mockResolvedValue([
-      { endpoint: 'text', calls: 9, ...usage(), output_tokens: 20_000 },
+      {
+        endpoint: 'text',
+        calls: 9,
+        ...usage(),
+        output_tokens: 20_000,
+        cost_usd: 0.1018,
+        unpriced_calls: 0,
+      },
     ]);
     claude.summarizeSpending.mockResolvedValue('You spent 133.20 EUR.');
 
@@ -447,7 +454,6 @@ describe('ReceiptsService', () => {
       to: '2026-03-31',
     });
 
-    // Haiku: 1800 input at $1/M + 20,000 output at $5/M.
     expect(result.ai_usage.total_cost_usd).toBe(0.1018);
     // eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mocked property, not a real unbound method
     expect(claude.summarizeSpending).toHaveBeenCalledWith(
